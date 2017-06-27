@@ -4,6 +4,8 @@ import os
 import sys
 import time
 import requests
+from requests.packages.urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 import json
 import urllib
 import re
@@ -20,6 +22,11 @@ class LighthouseApiClient:
 		self.token = None
 		self.token_timeout = 5 * 60
 		self.pending_name_ids = {}
+
+		self.s = requests.Session()
+		retries = Retry(total=5, backoff_factor=0.2, status_forcelist=[ 401, 500 ])
+		self.s.mount('https://', HTTPAdapter(max_retries=retries))
+
 		self._do_auth()
 
 	def _headers(self):
@@ -31,12 +38,14 @@ class LighthouseApiClient:
 	def _do_auth(self):
 		url = self.api_url + '/sessions'
 		data = { 'username' : self.username, 'password' : self.password }
+		self.token = None
 
 		try:
-			r = requests.post(url, headers=self._headers(), data=json.dumps(data), verify=False)
+			r = self.s.post(url, headers=self._headers(), data=json.dumps(data), verify=False)
 			r.raise_for_status()
-		except:
-			return None
+		except Exception as e:
+			print e
+			return
 		body = json.loads(r.text)
 
 		self.token = body['session']
@@ -49,9 +58,10 @@ class LighthouseApiClient:
 		params = urllib.urlencode(data)
 
 		try:
-			r = requests.get(url, headers=self._headers(), params=params, verify=False)
+			r = self.s.get(url, headers=self._headers(), params=params, verify=False)
 			r.raise_for_status()
-		except:
+		except Exception as e:
+			print e
 			return None
 		body = json.loads(r.text)
 
@@ -68,9 +78,10 @@ class LighthouseApiClient:
 		params = urllib.urlencode(data)
 
 		try:
-			r = requests.get(url, headers=self._headers(), params=params, verify=False)
+			r = self.s.get(url, headers=self._headers(), params=params, verify=False)
 			r.raise_for_status()
-		except:
+		except Exception as e:
+			raise e
 			return None, None
 		body = json.loads(r.text)
 
@@ -82,15 +93,59 @@ class LighthouseApiClient:
 		new_pending = (set(name_ids) > set(self.pending_name_ids))
 		self.pending_name_ids= name_ids
 
-		return name_ids, new_pending
+		return sorted(name_ids, key=lambda k: k.lower()), new_pending
+
+	def get_enrolled(self):
+		url = self.api_url + '/nodes'
+		data =  { 'config:status' : 'Enrolled' }
+		params = urllib.urlencode(data)
+
+		try:
+			r = self.s.get(url, headers=self._headers(), params=params, verify=False)
+			r.raise_for_status()
+		except Exception as e:
+			raise e
+			return None
+		body = json.loads(r.text)
+
+		names = []
+		for node in body['nodes']:
+			names.append(node['name'])
+
+		return sorted(names, key=unicode.lower)
+
+	def get_port_labels(self, node_name):
+		url = self.api_url + '/nodes'
+
+		try:
+			if node_name:
+				data = { 'config:name' : node_name }
+				params = urllib.urlencode(data)
+				r = self.s.get(url, headers=self._headers(), params=params, verify=False)
+			else:
+				r = self.s.get(url, headers=self._headers(), verify=False)
+			r.raise_for_status()
+		except Exception as e:
+			raise e
+			return None
+		body = json.loads(r.text)
+
+		labels = []
+		for node in body['nodes']:
+			for port in node['ports']:
+				if port['mode'] == 'consoleServer':
+					labels.append(port['label'])
+
+		return sorted(labels, key=unicode.lower)
 
 	def get_summary(self):
 		url = self.api_url + '/stats/nodes/connection_summary'
 
 		try:
-			r = requests.get(url, headers=self._headers(), verify=False)
+			r = self.s.get(url, headers=self._headers(), verify=False)
 			r.raise_for_status()
-		except:
+		except Exception as e:
+			print e
 			return None, None, None
 		body = json.loads(r.text)
 
@@ -109,9 +164,10 @@ class LighthouseApiClient:
 		url = self.api_url + '/nodes' + '/' + node['id']
 
 		try:
-			r = requests.delete(url, headers=self._headers(), verify=False)
+			r = self.s.delete(url, headers=self._headers(), verify=False)
 			r.raise_for_status()
-		except:
+		except Exception as e:
+			print e
 			return None
 
 		return True
@@ -120,9 +176,10 @@ class LighthouseApiClient:
 		url = self.api_url + '/nodes'
 
 		try:
-			r = requests.get(url, headers=self._headers(), verify=False)
+			r = self.s.get(url, headers=self._headers(), verify=False)
 			r.raise_for_status()
-		except:
+		except Exception as e:
+			print e
 			return None
 		body = json.loads(r.text)
 
@@ -145,9 +202,10 @@ class LighthouseApiClient:
 		approved_node['node']['tags'] = node['tag_list']['tags']
 
 		try:
-			r = requests.put(url, headers=self._headers(), data=json.dumps(approved_node), verify=False)
+			r = self.s.put(url, headers=self._headers(), data=json.dumps(approved_node), verify=False)
 			r.raise_for_status()
-		except:
+		except Exception as e:
+			print e
 			return None
 
 		return True
@@ -158,9 +216,10 @@ class LighthouseApiClient:
 		params = urllib.urlencode(data)
 
 		try:
-			r = requests.get(url, headers=self._headers(), params=params, verify=False)
+			r = self.s.get(url, headers=self._headers(), params=params, verify=False)
 			r.raise_for_status()
-		except:
+		except Exception as e:
+			print e
 			return None
 		body = json.loads(r.text)
 
@@ -172,7 +231,7 @@ class LighthouseApiClient:
 		return approved_names
 
 	def tick(self, elapsed_seconds):
-		if not self.token_timeout > 0:
+		if not self.token or self.token_timeout <= 0:
 			self._do_auth()
 		self.token_timeout -= elapsed_seconds
 
@@ -188,11 +247,14 @@ class LighthouseBot:
 			self._get_port_ssh : { 'ssh', 'sshlink' }, \
 			self._get_port_web : { 'web', 'webterm', 'weblink' }, \
 			self._get_port : { 'con', 'console', 'gimme' }, \
+			self._get_port_labels : { 'devices', 'ports', 'labels' }, \
 			self._get_node_summary : { 'sup', 'summary', 'stats', 'status', 'howzit' }, \
 			self._get_web : { 'lighthouse', 'lhweb', 'webui', 'gui' }, \
+			self._get_enrolled : { 'nodes', 'enrolled' }, \
 			self._check_pending : { 'pending' }, \
 			self._approve_nodes: { 'ok', 'okay', 'approve' }, \
-			self._delete_nodes: { 'nuke', 'kill', 'delete' } \
+			self._delete_nodes: { 'nuke', 'kill', 'delete' }, \
+			self._dad_joke: { 'joke', 'dad', 'lame', 'lol' } \
 		}
 
  		self.slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
@@ -278,10 +340,28 @@ class LighthouseBot:
 		response = ''
 		for name in names:
 			if name in deleted_names:
-				emoji = 'nuked :boom:'
+				emoji = 'unenrolled :boom:'
 			else:
 				emoji = 'failed :thumbsdown:'
 			response +=  name + ' ' + emoji + '\n'
+		return response
+
+	def _get_port_labels(self, node_name, *_):
+		labels = self.lh_client.get_port_labels(node_name)
+
+		if labels:
+			response = '\n'.join(labels)
+		else:
+			response = 'Nothing to see here'
+		return response
+
+	def _get_enrolled(self, *_):
+		enrolled_nodes = self.lh_client.get_enrolled()
+
+		if enrolled_nodes:
+			response = '\n'.join(enrolled_nodes)
+		else:
+			response = 'Nothing to see here'
 		return response
 
 	def _check_pending(self, new_only, *_):
@@ -323,6 +403,16 @@ class LighthouseBot:
 	def _get_web(self, *_):
 		return '<' + self.lh_client.url + '>'
 
+	def _dad_joke(self, *_):
+		headers = { 'Accept' : 'application/json' }
+		try:
+			r = requests.get('http://icanhazdadjoke.com/', headers=headers)
+			r.raise_for_status()
+			body = json.loads(r.text)
+			return body['joke']
+		except:
+			return ':laughing:'
+
 	def _get_slack_username(self, user_id):
 		if user_id:
 			try:
@@ -335,16 +425,19 @@ class LighthouseBot:
 		return 'nobody'
 
 	def _show_help(self):
-		return textwrap.dedent("""
-			I know how to: ```
-			ssh <device>  Get you an SSH link to managed device
-			web <device>  Get you an web terminal link to managed device
-			con <device>  Both of the above
-			sup           Show you node enrollment status
-			lhweb         Get you a link to the Lighthouse web UI
-			pending       Show you nodes awaiting approval
-			ok <node>     Approve a node, or whitespace separated list of nodes
-			nuke <node>   Delete a node, or whitespace separated list of nodes```
+		return textwrap.dedent(""" 
+			```
+			@""" + self.bot_name + """ devices       Show you all the managed devices I've got
+			@""" + self.bot_name + """ ssh <device>  Get you an SSH link to managed device
+			@""" + self.bot_name + """ web <device>  Get you an web terminal link to managed device
+			@""" + self.bot_name + """ con <device>  Both of the above
+			@""" + self.bot_name + """ sup           Show you node enrollment summary
+			@""" + self.bot_name + """ gui           Get you a link to the Lighthouse web UI
+			@""" + self.bot_name + """ nodes         Show you nodes I've got enrolled
+			@""" + self.bot_name + """ pending       Show you nodes awaiting your approval
+			@""" + self.bot_name + """ ok <node>     Approve a node, or whitespace separated list of nodes
+			@""" + self.bot_name + """ nuke <node>   Unenroll a node, or whitespace separated list of nodes
+			```
 			""")
 
 	def _sanitise(self, line):
@@ -360,15 +453,21 @@ class LighthouseBot:
 	def _command(self, command, channel, user_id):
 		print 'Got command: ' + command
 
-		response = self._show_help()
+		response = ''
+		username = self._get_slack_username(user_id)
+		if user_id:
+			response = '<@' + user_id + '|' + username + '> '
+
+		output = self._show_help()
 		intent, _, scope = command.partition(' ')
 		for func, intents in self.func_intents.iteritems():
 			if intent in intents:
-				response = func(self._sanitise(scope), self._get_slack_username(user_id))
+				output = func(self._sanitise(scope), username)
 				break
-		if not response:
+		if not output:
 			return
 
+		response = response + output
 		print 'Responding: ' + response
 
 		try:
@@ -393,7 +492,7 @@ class LighthouseBot:
 		if command and channel and user_id:
 			self._command(command, channel, user_id)
 
-		if self.poll_count % 5 == 0:
+		if self.poll_count % 10 == 0:
 			self._command('pending new_only', '#general', None)
 		self.poll_count += self.poll_interval
 		time.sleep(self.poll_interval)
