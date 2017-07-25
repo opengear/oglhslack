@@ -277,13 +277,27 @@ class NodesService:
         return self.client.get('/ports/%d' % int(id))
 
 class SmartGroupsService:
+    """
+    A service which provides access for the smargroups
+
+    All the following methods are expected to be executed after a call like:
+
+    >>> import lhapi
+    >>> client = lhapi.LighthouseApiClient()
+
+    """
 
     def __init__(self, client):
+        """
+
+        """
         self.client = client
 
     def find(self, id):
         """
+        Retrieve the details for a smart group.
 
+        API call: GET /nodes/smartgroups/{groupId}
         """
         return self.client.get('nodes/smartgroups/%d' % int(id))
 
