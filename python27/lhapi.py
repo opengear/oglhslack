@@ -59,7 +59,8 @@ class LighthouseApiClient:
         self.token = None
 
         try:
-            r = self.s.post(url, headers=self._headers(), data=json.dumps(data), verify=False)
+            r = self.s.post(url, headers=self._headers(), \
+                data=json.dumps(data), verify=False)
             r.raise_for_status()
         except Exception as e:
             print e
@@ -84,19 +85,22 @@ class LighthouseApiClient:
     def get(self, path, data={}):
         params = urllib.urlencode(data)
         url = self._get_api_url(path)
-        r = self.s.get(url, headers=self._headers(), params=params, verify=False)
+        r = self.s.get(url, headers=self._headers(), params=params, \
+            verify=False)
         return self._parse_response(r)
 
     @ensure_auth
     def post(self, path, data={}):
         url = self._get_api_url(path)
-        r = self.s.post(url, headers=self._headers(), data=json.dumps(data), verify=False)
+        r = self.s.post(url, headers=self._headers(), data=json.dumps(data), \
+            verify=False)
         return self._parse_response(r)
 
     @ensure_auth
     def put(self, path, obj_id, data={}):
         url = self._get_api_url('%s/%s' % (path, obj_id))
-        r = self.s.put(url, headers=self._headers(), data=json.dumps(data), verify=False)
+        r = self.s.put(url, headers=self._headers(), data=json.dumps(data), \
+            verify=False)
         return self._parse_response(r)
 
     @ensure_auth
@@ -111,41 +115,166 @@ class LighthouseApiClient:
 
 
 class NodesService:
+    """
+    A service which provides access for the nodes
+
+    All the following methods are expected to be executed after a call like:
+
+    >>> import lhapi
+    >>> client = lhapi.LighthouseApiClient()
+
+    """
+
     def __init__(self, client):
+        """
+        :client is an instance of the @LighthouseApiClient class
+        it will be changed soon, NodesService will be a extend a base class
+        """
         self.client = client
 
-    def find(self, id):
-        return self.client.get('nodes/%d' % int(id))
-
-    def create(self, enrollment):
-        return self.client.post('nodes', enrollment)
-
-    def update(self, id, node):
-        return self.client.put('nodes', id, node)
-
     def list(self, **kwargs):
+        """
+        Gets nodes attached to this lighthouse instance
+
+        API call: GET /nodes
+
+        Usage:
+
+        >>> client.nodes().list()
+
+        """
         return self.client.get('nodes', kwargs)
 
+    def create(self, enrollment):
+        """
+        Enqueue a new node for enrollment
+
+        API call: POST /nodes
+
+        Usage:
+
+        >>> client.nodes().create(enrollment)
+
+        """
+        return self.client.post('nodes', enrollment)
+
     def smartgroups(self):
+        """
+        Retrieve the node smart groups' service
+
+        API call: [no api call]
+
+        Usage:
+
+        >>> client.nodes().smartgroups()
+
+        """
         return SmartGroupsService(self.client)
 
+    def update(self, id, node):
+        """
+        Update a node
+
+        API call: PUT /nodes/{id}
+
+        Usage:
+
+        >>> client.nodes().update(node_id, node)
+
+        """
+        return self.client.put('nodes', id, node)
+
     def manifest(self):
+        """
+        Download the system manifest file
+
+        API call: GET /nodes/manifest
+
+        Usage:
+
+        >>> client.nodes().manifest()
+
+        """
         return self.client.get('nodes/manifest')
 
+    def find(self, id):
+        """
+        Find a node by its `id`.
+
+        API call: GET /nodes
+
+        Usage:
+
+        >>> client.nodes().find(node_id)
+
+        """
+        return self.client.get('nodes/%d' % int(id))
+
+    def registration_package(self, id):
+        """
+        Retrieve the enrollment package for a node.
+
+        API call: GET /nodes/{id}/registration_package
+
+        Usage:
+
+        >>> client.nodes().registration_package(node_id)
+
+        """
+        return self.client.get('nodes/%d/registration_package' % int(id))
+
+    def tags(self, id):
+        """
+        Retrieve the node tags' service
+
+        API call: [no api call]
+
+        Usage:
+
+        >>> client.nodes().tags(node_id)
+
+        """
+        return TagsService(self, id)
+
     def ids(self, **kwargs):
+        """
+        Obtain a list of node ids
+
+        API call: GET /nodes/ids
+
+        Usage:
+
+        >>> client.nodes().ids()
+
+        """
         return self.client.get('nodes/ids', kwargs)
 
     def fields(self):
+        """
+        Obtain a list of fields which can be used to perform queries
+        against nodes
+
+        API call: GET /nodes/fields
+
+        Usage:
+
+        >>> client.nodes().fields()
+
+        """
         return self.client.get('nodes/fields')
 
-    def registration_package(self, id):
-        return self.client.get('nodes/%d/registration_package' % int(id))
+    def ports(self, id):
+        """
+        Retrieve a list of all ports belonging to a node
 
-    def tags(self):
-        return []
+        API call: GET /nodes/{id}/ports
 
-    def ports(self):
-        return None
+        Usage:
+
+        >>> client.nodes().ports(node_id)
+
+        """
+        return self.client.get('/ports/%d' % int(id))
 
 class SmartGroupsService:
 
@@ -153,6 +282,9 @@ class SmartGroupsService:
         self.client = client
 
     def find(self, id):
+        """
+
+        """
         return self.client.get('nodes/smartgroups/%d' % int(id))
 
     def create(self, smartgroup):
@@ -167,8 +299,7 @@ class SmartGroupsService:
     def list(self, **kwargs):
         return self.client.get('nodes/smartgroups', kwargs)
 
-
-
-#class SmartGroup:
-#    def __init__(self, id=0):
-#        if
+class TagsService:
+    def __init__(self, client, node_id):
+        self.client = client
+        self.node_id = node_id
