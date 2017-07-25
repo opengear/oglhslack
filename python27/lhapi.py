@@ -20,6 +20,7 @@ def ensure_auth(f):
     when a function is called
     """
     def wrapper(*args):
+        return {'oi':'tchau'}
         result = f(*args)
         if type(result) is dict and 'error' in result and \
                 len(result['error']) > 0 and \
@@ -31,15 +32,54 @@ def ensure_auth(f):
         return result
     return wrapper
 
+class MinimalService:
+    def __init__(self, client, service_name):
+        self.client = client
+        self.service_name = service_name
+
+    def get(self):
+        return self.client.get(self.service_name)
+
+    def update(self, id, service):
+        return self.client.put(self.service_name, id, service)
+
+class DefaultService:
+    def __init__(self, client, service_name):
+        self.client = client
+        self.service_name = service_name
+
+    def find(self, id):
+        return self.client.get('%s/%d' % (self.service_name, int(id)))
+
+    def create(self, service):
+        return self.client.post(self.service_name, smartgroup)
+
+    def delete(self, id):
+        return self.client.delete(self.service_name, id)
+
+    def update(self, id, service):
+        return self.client.put(self.service_name, id, service)
+
+    def list(self, **kwargs):
+        return self.client.get(self.service_name, kwargs)
+
 class LighthouseApiClient:
     """
     the basic API client, with methods for GET, POST, PUT, and DELETE
     it also has methods for accessing the other services:
     - NodesService
+    - ServicesService
+    - GlobalTagsService
+    - InterfacesService
+    - AuthService
+    - BundlesService
+    - UsersService
+    - GroupsService
     """
     def __init__(self):
         self.url = 'https://oglh-octo.opengear.com'
         requests.packages.urllib3.disable_warnings()
+
         self.api_url = self.url + '/api/v1'
         self.username = os.environ.get('OGLH_API_USER')
         self.password = os.environ.get('OGLH_API_PASS')
@@ -83,7 +123,8 @@ class LighthouseApiClient:
             #response.raise_for_status()
             return json.loads(response.text)
         except ValueError:
-            raise Exception('Invalid response')
+            #raise Exception('Invalid response')
+            return response.text
 
     @ensure_auth
     def get(self, path, data={}):
@@ -113,57 +154,136 @@ class LighthouseApiClient:
         r = self.s.delete(url, headers=self._headers(), verify=False)
         return self._parse_response(r)
 
-
     def nodes(self):
+        """
+        Returns a node service with methods for dealing with node's properties
+
+        API call: [no api call]
+
+        Usage:
+
+        >>> client.nodes()
+
+        """
         return NodesService(self)
 
+    def ports(self, id):
+        """
+        Retrieve a single port by ID
 
-class NodesService:
-    """
-    A service which provides access for the nodes
+        API call: GET /ports/{id}
 
-    All the following methods are expected to be executed after a call like:
+        Usage:
 
-    >>> import lhapi
-    >>> client = lhapi.LighthouseApiClient()
+        >>> client.ports(port_id)
 
-    it also has methods for accessing the other services:
-    - SmartGroupsService
-    - TagsService
-    """
+        """
+        return self.get('ports/%d' % int(id))
 
+    def services(self):
+        """
+        It returns the 'services' service
+
+        Usage:
+
+        >>> client.services()
+
+        """
+        return ServicesService(self)
+
+    def global_tags(self):
+        """
+        It returns the global tags service
+
+        Usage:
+
+        >>> client.global_tags()
+
+        """
+        return GlobalTagsService(self)
+
+    def interfaces(self):
+        """
+        It returns the interfaces service
+
+        Usage:
+
+        >>> client.interfaces()
+
+        """
+        return InterfacesService(self)
+
+    def stats(self):
+        """
+        A summary of connected, pending and disconnected nodes
+
+        API call: GET /stats/nodes/connection_summary
+
+        Usage:
+
+        >>> client.stats()
+
+        """
+        return self.get('stats/nodes/connection_summary')
+
+    def support_report(self):
+        """
+        Retrieve the support report data
+
+        API call: GET /support_report
+
+        Usage:
+
+        >>> client.support_report()
+        """
+        return self.get('support_report')
+
+    def auth(self):
+        """
+        Return an auth service
+
+        Usage:
+
+        >>> client.auth()
+        """
+        return AuthService(self)
+
+    def bundles(self):
+        """
+        Returns a bundles service
+
+        Usage:
+
+        >>> client.bundles()
+
+        """
+        return BundlesService(self)
+
+    def users(self):
+        """
+        Returns a users service
+
+        Usage:
+
+        >>> client.users()
+
+        """
+        return UsersService(self)
+
+    def groups(self):
+        """
+        Returns a groups service
+
+        Usage:
+
+        >>> client.groups()
+
+        """
+        return GroupsService(self)
+
+class NodesService(DefaultService):
     def __init__(self, client):
-        """
-        :client is an instance of the @LighthouseApiClient class
-        it will be changed soon, NodesService will be a extend a base class
-        """
-        self.client = client
-
-    def list(self, **kwargs):
-        """
-        Gets nodes attached to this lighthouse instance
-
-        API call: GET /nodes
-
-        Usage:
-
-        >>> client.nodes().list()
-
-        """
-        return self.client.get('nodes', kwargs)
-
-    def create(self, enrollment):
-        """
-        Enqueue a new node for enrollment
-
-        API call: POST /nodes
-
-        Usage:
-
-        >>> client.nodes().create(enrollment)
-
-        """
-        return self.client.post('nodes', enrollment)
+        super(NodesService, self).__init__(client, 'nodes')
 
     def smartgroups(self):
         """
@@ -178,19 +298,6 @@ class NodesService:
         """
         return SmartGroupsService(self.client)
 
-    def update(self, id, node):
-        """
-        Update a node
-
-        API call: PUT /nodes/{id}
-
-        Usage:
-
-        >>> client.nodes().update(node_id, node)
-
-        """
-        return self.client.put('nodes', id, node)
-
     def manifest(self):
         """
         Download the system manifest file
@@ -203,19 +310,6 @@ class NodesService:
 
         """
         return self.client.get('nodes/manifest')
-
-    def find(self, id):
-        """
-        Find a node by its `id`.
-
-        API call: GET /nodes
-
-        Usage:
-
-        >>> client.nodes().find(node_id)
-
-        """
-        return self.client.get('nodes/%d' % int(id))
 
     def registration_package(self, id):
         """
@@ -283,166 +377,135 @@ class NodesService:
         """
         return self.client.get('/ports/%d' % int(id))
 
-class SmartGroupsService:
-    """
-    A service which provides access for the smargroups
+    def delete(self, id):
+        raise Exception('It is not possible to delete Nodes')
 
-    All the following methods are expected to be executed after a call like:
-
-    >>> import lhapi
-    >>> client = lhapi.LighthouseApiClient()
-
-    """
-
+class SmartGroupsService(DefaultService):
     def __init__(self, client):
-        """
+        super(SmartGroupsService, self).__init__(client, 'nodes/smartgroups')
 
-        """
+class TagsService(DefaultService):
+    def __init__(self, client, node_id):
+        super(TagsService, self).__init__(client, \
+            'nodes/%d/tags' % int(self.node_id))
+
+class ServicesService:
+    def __init__(self, client):
         self.client = client
+
+    def https(self):
+        return HttpsService(self.client)
+
+    def ntp(self):
+        return NtpService(self.client)
+
+    def console_gateway(self):
+        return ConsoleGatewayService(self.client)
+
+class HttpsService(MinimalService):
+    def __init__(self, client):
+        super(HttpsService, self).__init__(client, 'services/https')
+
+class NtpService(MinimalService):
+    def __init__(self, client):
+        super(NtpService, self).__init__(client, 'services/ntp')
+
+class ConsoleGatewayService(MinimalService):
+    def __init__(self, client):
+        super(ConsoleGatewayService, self).__init__(client, \
+            'services/console_gateway')
+
+class GlobalTagsService(DefaultService):
+    def __init__(self, client):
+        super(GlobalTagsService, self).__init__(client, 'tags/node_tags')
 
     def find(self, id):
-        """
-        Retrieve the details for a smart group.
+        raise Exception('It is not possible to retrieve a single tag')
 
-        API call: GET /nodes/smartgroups/{groupId}
-
-        Usage:
-
-        >>> client.nodes().smartgroups().find(smartgroup_id)
-
-        """
-        return self.client.get('nodes/smartgroups/%d' % int(id))
-
-    def create(self, smartgroup):
-        """
-        Create a new node smart group
-
-        API call: POST /nodes/smartgroups
-
-        Usage:
-
-        >>> client.nodes().smartgroups().create(smartgroup)
-
-        """
-        return self.client.post('nodes/smartgroups', smartgroup)
-
-    def delete(self, id):
-        """
-        Delete a smart group
-
-        API call: DELETE /nodes/smartgroups/{groupId}
-
-        Usage:
-
-        >>> client.nodes().smartgroups().delete(smartgroup_id)
-
-        """
-        return self.client.delete('nodes/smartgroups/%d' % int(id))
-
-    def update(self, id, smartgroup):
-        """
-        Updates the details for a smart group
-
-        API call: PUT /nodes/smartgroups/{groupId}
-
-        Usage:
-
-        >>> client.nodes().smartgroups().update(smartgroup_id, smartgroup)
-
-        """
-        return self.client.put('nodes/smartgroups', id, smartgroup)
-
-    def list(self, **kwargs):
-        """
-        Retrieve a list of node smart groups
-
-        API call: GET /nodes/smartgroups
-
-        Usage:
-
-        >>> client.nodes().smartgroups().list()
-
-        """
-        return self.client.get('nodes/smartgroups', kwargs)
-
-class TagsService:
-    """
-    A service which provides access for the tags
-
-    All the following methods are expected to be executed after a call like:
-
-    >>> import lhapi
-    >>> client = lhapi.LighthouseApiClient()
-
-    """
-    def __init__(self, client, node_id):
+class InterfacesService:
+    def __init__(self, client):
         self.client = client
-        self.node_id = node_id
 
     def list(self):
         """
-        Get the list of all tags associated with this node
+        Get a list of the network interfaces on the Lighthouse server.
 
-        API call: GET /nodes/{id}/tags
-
-        Usage:
-
-        >>> client.nodes().tags(node_id).list()
-
-        """
-        return self.client.get('nodes/%d/tags' % int(self.node_id))
-
-    def create(self, tag):
-        """
-        Create and associate a new tag with the node
-
-        API call: POST /nodes/{id}/tags
+        API call: GET /interfaces
 
         Usage:
 
-        >>> client.nodes().tags(node_id).create(tag)
+        >>> client.interfaces().list()
 
         """
-        return self.client.post('nodes/%d/tags' % int(self.node_id), tag)
+        return self.client.get('interfaces')
 
     def find(self, id):
         """
-        Get a tag's information by ID
+        Get interface information by id.
 
-        API call: GET /nodes/{id}/tags/{tag_value_id}
+        API call: GET /interfaces/{id}
 
         Usage:
 
-        >>> client.nodes().tags(node_id).find(tag_id)
+        >>> client.interfaces().find(interface_id)
 
         """
-        return self.client.get('nodes/%d/tags/%d' % int(self.node_id), \
-            int(self.node_id))
+        return self.client.get('interfaces/%d' % int(id))
+
+    def update(self, id, interface):
+        """
+        Update settings for interface {id}
+
+        API call: PUT /interfaces/{id}
+
+        Usage:
+
+        >>> client.interfaces().update(interface_id, interface)
+
+        """
+        return self.client.put('interfaces', id, interface)
+
+class AuthService(MinimalService):
+    def __init__(self, client):
+        super(AuthService, self).__init__(client, 'auth')
+
+class BundlesService(DefaultService):
+    def __init__(self, client):
+        super(BundlesService, self).__init__(client, 'bundles')
 
     def delete(self, id):
-        """
-        Delete a tag value from the node
+        raise Exception('It is not possible to delete Bundles')
 
-        API call: DELETE /nodes/{id}/tags/{tag_value_id}
+    def automatic_tags(self, id):
+        """
+        Returns an automatic tags service
 
         Usage:
 
-        >>> client.nodes().tags(node_id).delete(tag_id)
+        >>> client.bundles().automatic_tags(bundle_id)
 
         """
-        return self.client.delete('nodes/%d/tags/%d' % int(self.node_id), \
-            int(self.node_id))
+        return AutomaticTagsService(self.client, id)
 
-    def update(self, id, tag):
-        """
-        Update tag information for {node_tag_id} in node {id}
+class AutomaticTagsService(DefaultService):
+    def __init__(self, client, id):
+        super(AutomaticTagsService, self).__init__(client, \
+            '/bundles/%d/automatic_tags' % int(id))
 
-        API call: PUT /nodes/{id}/tags/{tag_value_id}
+class UsersService(DefaultService):
+    def __init__(self, client):
+        super(UsersService, self).__init__(client, 'users')
 
-        Usage:
+class GroupsService(DefaultService):
+    def __init__(self, client):
+        super(GroupsService, self).__init__(client, 'groups')
 
-        >>> client.nodes().tags(node_id).update(tag_id, tag)
+class SystemService:
+    def __init__(self, client):
+        self.client = client
 
-        """
-        return self.client.put('nodes/%d/tags/%d' % int(self.node_id), \
-            int(self.node_id), tag)
+    def hostname(self):
+        return MinimalService(self.client, 'system/hostname')
+
+    def webui_session_timeout(self):
+        return MinimalService(self.client, 'system/webui_session_timeout')
