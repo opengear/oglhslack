@@ -32,7 +32,11 @@ def ensure_auth(f):
     return wrapper
 
 class LighthouseApiClient:
-
+    """
+    the basic API client, with methods for GET, POST, PUT, and DELETE
+    it also has methods for accessing the other services:
+    - NodesService
+    """
     def __init__(self):
         self.url = 'https://oglh-octo.opengear.com'
         requests.packages.urllib3.disable_warnings()
@@ -123,6 +127,9 @@ class NodesService:
     >>> import lhapi
     >>> client = lhapi.LighthouseApiClient()
 
+    it also has methods for accessing the other services:
+    - SmartGroupsService
+    - TagsService
     """
 
     def __init__(self, client):
