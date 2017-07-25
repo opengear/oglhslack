@@ -298,22 +298,144 @@ class SmartGroupsService:
         Retrieve the details for a smart group.
 
         API call: GET /nodes/smartgroups/{groupId}
+
+        Usage:
+
+        >>> client.nodes().smartgroups().find(smartgroup_id)
+
         """
         return self.client.get('nodes/smartgroups/%d' % int(id))
 
     def create(self, smartgroup):
+        """
+        Create a new node smart group
+
+        API call: POST /nodes/smartgroups
+
+        Usage:
+
+        >>> client.nodes().smartgroups().create(smartgroup)
+
+        """
         return self.client.post('nodes/smartgroups', smartgroup)
 
     def delete(self, id):
+        """
+        Delete a smart group
+
+        API call: DELETE /nodes/smartgroups/{groupId}
+
+        Usage:
+
+        >>> client.nodes().smartgroups().delete(smartgroup_id)
+
+        """
         return self.client.delete('nodes/smartgroups/%d' % int(id))
 
     def update(self, id, smartgroup):
+        """
+        Updates the details for a smart group
+
+        API call: PUT /nodes/smartgroups/{groupId}
+
+        Usage:
+
+        >>> client.nodes().smartgroups().update(smartgroup_id, smartgroup)
+
+        """
         return self.client.put('nodes/smartgroups', id, smartgroup)
 
     def list(self, **kwargs):
+        """
+        Retrieve a list of node smart groups
+
+        API call: GET /nodes/smartgroups
+
+        Usage:
+
+        >>> client.nodes().smartgroups().list()
+
+        """
         return self.client.get('nodes/smartgroups', kwargs)
 
 class TagsService:
+    """
+    A service which provides access for the tags
+
+    All the following methods are expected to be executed after a call like:
+
+    >>> import lhapi
+    >>> client = lhapi.LighthouseApiClient()
+
+    """
     def __init__(self, client, node_id):
         self.client = client
         self.node_id = node_id
+
+    def list(self):
+        """
+        Get the list of all tags associated with this node
+
+        API call: GET /nodes/{id}/tags
+
+        Usage:
+
+        >>> client.nodes().tags(node_id).list()
+
+        """
+        return self.client.get('nodes/%d/tags' % int(self.node_id))
+
+    def create(self, tag):
+        """
+        Create and associate a new tag with the node
+
+        API call: POST /nodes/{id}/tags
+
+        Usage:
+
+        >>> client.nodes().tags(node_id).create(tag)
+
+        """
+        return self.client.post('nodes/%d/tags' % int(self.node_id), tag)
+
+    def find(self, id):
+        """
+        Get a tag's information by ID
+
+        API call: GET /nodes/{id}/tags/{tag_value_id}
+
+        Usage:
+
+        >>> client.nodes().tags(node_id).find(tag_id)
+
+        """
+        return self.client.get('nodes/%d/tags/%d' % int(self.node_id), \
+            int(self.node_id))
+
+    def delete(self, id):
+        """
+        Delete a tag value from the node
+
+        API call: DELETE /nodes/{id}/tags/{tag_value_id}
+
+        Usage:
+
+        >>> client.nodes().tags(node_id).delete(tag_id)
+
+        """
+        return self.client.delete('nodes/%d/tags/%d' % int(self.node_id), \
+            int(self.node_id))
+
+    def update(self, id, tag):
+        """
+        Update tag information for {node_tag_id} in node {id}
+
+        API call: PUT /nodes/{id}/tags/{tag_value_id}
+
+        Usage:
+
+        >>> client.nodes().tags(node_id).update(tag_id, tag)
+
+        """
+        return self.client.put('nodes/%d/tags/%d' % int(self.node_id), \
+            int(self.node_id), tag)
