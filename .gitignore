@@ -1,4 +1,4 @@
-# ignore all cache files
+# ignore cache files
 *.pyc
 
 # ignore test files
