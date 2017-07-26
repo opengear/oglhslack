@@ -20,7 +20,6 @@ def ensure_auth(f):
     when a function is called
     """
     def wrapper(*args):
-        return {'oi':'tchau'}
         result = f(*args)
         if type(result) is dict and 'error' in result and \
                 len(result['error']) > 0 and \
@@ -49,7 +48,7 @@ class DefaultService:
         self.service_name = service_name
 
     def find(self, id):
-        return self.client.get('%s/%d' % (self.service_name, int(id)))
+        return self.client.get('%s/%s' % (self.service_name, id))
 
     def create(self, service):
         return self.client.post(self.service_name, smartgroup)
@@ -66,15 +65,6 @@ class DefaultService:
 class LighthouseApiClient:
     """
     the basic API client, with methods for GET, POST, PUT, and DELETE
-    it also has methods for accessing the other services:
-    - NodesService
-    - ServicesService
-    - GlobalTagsService
-    - InterfacesService
-    - AuthService
-    - BundlesService
-    - UsersService
-    - GroupsService
     """
     def __init__(self):
         self.url = 'https://oglh-octo.opengear.com'
@@ -178,7 +168,7 @@ class LighthouseApiClient:
         >>> client.ports(port_id)
 
         """
-        return self.get('ports/%d' % int(id))
+        return self.get('ports/%s' % id)
 
     def services(self):
         """
@@ -246,7 +236,7 @@ class LighthouseApiClient:
 
         >>> client.auth()
         """
-        return AuthService(self)
+        return MinimalService(self, 'auth')
 
     def bundles(self):
         """
@@ -268,7 +258,7 @@ class LighthouseApiClient:
         >>> client.users()
 
         """
-        return UsersService(self)
+        return DefaultService(self, 'users')
 
     def groups(self):
         """
@@ -279,11 +269,11 @@ class LighthouseApiClient:
         >>> client.groups()
 
         """
-        return GroupsService(self)
+        return DefaultService(self, 'groups')
 
 class NodesService(DefaultService):
     def __init__(self, client):
-        super(NodesService, self).__init__(client, 'nodes')
+        DefaultService.__init__(self, client, 'nodes')
 
     def smartgroups(self):
         """
@@ -296,7 +286,7 @@ class NodesService(DefaultService):
         >>> client.nodes().smartgroups()
 
         """
-        return SmartGroupsService(self.client)
+        return DefaultService(self.client, 'nodes/smartgroups')
 
     def manifest(self):
         """
@@ -322,7 +312,7 @@ class NodesService(DefaultService):
         >>> client.nodes().registration_package(node_id)
 
         """
-        return self.client.get('nodes/%d/registration_package' % int(id))
+        return self.client.get('nodes/%s/registration_package' % id)
 
     def tags(self, id):
         """
@@ -335,7 +325,7 @@ class NodesService(DefaultService):
         >>> client.nodes().tags(node_id)
 
         """
-        return TagsService(self, id)
+        return DefaultService(self, 'nodes/%s/tags' % id)
 
     def ids(self, **kwargs):
         """
@@ -375,49 +365,27 @@ class NodesService(DefaultService):
         >>> client.nodes().ports(node_id)
 
         """
-        return self.client.get('/ports/%d' % int(id))
+        return self.client.get('ports/%s' % id)
 
     def delete(self, id):
         raise Exception('It is not possible to delete Nodes')
-
-class SmartGroupsService(DefaultService):
-    def __init__(self, client):
-        super(SmartGroupsService, self).__init__(client, 'nodes/smartgroups')
-
-class TagsService(DefaultService):
-    def __init__(self, client, node_id):
-        super(TagsService, self).__init__(client, \
-            'nodes/%d/tags' % int(self.node_id))
 
 class ServicesService:
     def __init__(self, client):
         self.client = client
 
     def https(self):
-        return HttpsService(self.client)
+        return MinimalService(self.client, 'services/https')
 
     def ntp(self):
-        return NtpService(self.client)
+        return MinimalService(self.client, 'services/ntp')
 
     def console_gateway(self):
-        return ConsoleGatewayService(self.client)
-
-class HttpsService(MinimalService):
-    def __init__(self, client):
-        super(HttpsService, self).__init__(client, 'services/https')
-
-class NtpService(MinimalService):
-    def __init__(self, client):
-        super(NtpService, self).__init__(client, 'services/ntp')
-
-class ConsoleGatewayService(MinimalService):
-    def __init__(self, client):
-        super(ConsoleGatewayService, self).__init__(client, \
-            'services/console_gateway')
+        return MinimalService(self.client, 'services/console_gateway')
 
 class GlobalTagsService(DefaultService):
     def __init__(self, client):
-        super(GlobalTagsService, self).__init__(client, 'tags/node_tags')
+        DefaultService.__init__(self, client, 'tags/node_tags')
 
     def find(self, id):
         raise Exception('It is not possible to retrieve a single tag')
@@ -450,7 +418,7 @@ class InterfacesService:
         >>> client.interfaces().find(interface_id)
 
         """
-        return self.client.get('interfaces/%d' % int(id))
+        return self.client.get('interfaces/%s' % id)
 
     def update(self, id, interface):
         """
@@ -465,13 +433,9 @@ class InterfacesService:
         """
         return self.client.put('interfaces', id, interface)
 
-class AuthService(MinimalService):
-    def __init__(self, client):
-        super(AuthService, self).__init__(client, 'auth')
-
 class BundlesService(DefaultService):
     def __init__(self, client):
-        super(BundlesService, self).__init__(client, 'bundles')
+        DefaultService.__init__(self, client, 'bundles')
 
     def delete(self, id):
         raise Exception('It is not possible to delete Bundles')
@@ -485,20 +449,7 @@ class BundlesService(DefaultService):
         >>> client.bundles().automatic_tags(bundle_id)
 
         """
-        return AutomaticTagsService(self.client, id)
-
-class AutomaticTagsService(DefaultService):
-    def __init__(self, client, id):
-        super(AutomaticTagsService, self).__init__(client, \
-            '/bundles/%d/automatic_tags' % int(id))
-
-class UsersService(DefaultService):
-    def __init__(self, client):
-        super(UsersService, self).__init__(client, 'users')
-
-class GroupsService(DefaultService):
-    def __init__(self, client):
-        super(GroupsService, self).__init__(client, 'groups')
+        return DefaultService(self.client, 'bundles/%s/automatic_tags' % id)
 
 class SystemService:
     def __init__(self, client):
@@ -509,3 +460,21 @@ class SystemService:
 
     def webui_session_timeout(self):
         return MinimalService(self.client, 'system/webui_session_timeout')
+
+    def global_enrollment_token(self):
+        return MinimalService(self.client, 'system/global_enrollment_token')
+
+    def manifest_link(self):
+        return self.client.get('system/manifest_link')
+
+    def timezone(self):
+        return MinimalService(self.client, 'system/timezone')
+
+    def external_address(self):
+        return MinimalService(self.client, 'system/external_address')
+
+    def time(self):
+        return MinimalService(self.client, 'system/time')
+
+    def config(self):
+        return self.client.delete('system/config', '')
