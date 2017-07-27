@@ -106,7 +106,7 @@ class LighthouseApiClient:
         url = self.get_api_url('%s/%s' % (path, obj_id))
         r = self.s.delete(url, headers=self._headers(), verify=False)
         return self.parse_response(r)
-        
+
     def get_ports(self, label):
         body = self.get('nodes', { 'port:label' : label })
         #return list(filter((lambda x: x['label'] == label),reduce((lambda x,y: x+y),[node['ports'] for node in body['nodes']],[])))
@@ -390,7 +390,7 @@ class LighthouseBot:
         return 'nobody'
 
     def _show_help(self):
-        return textwrap.dedent(""" 
+        return textwrap.dedent("""
             ```
             @""" + self.bot_name + """ devices       Show you all the managed devices I've got
             @""" + self.bot_name + """ ssh <device>  Get you an SSH link to managed device
