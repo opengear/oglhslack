@@ -1,4 +1,6 @@
 import lhapi
 client = lhapi.LighthouseApiClient()
-#client._do_auth()
-print(client.nodes().smartgroups().find('smart_groups_nodes_groups-1'))
+print(client.nodes().list(per_page=1, page=3))
+#for node in body['nodes']:
+#    if node['approved'] == 0:
+#        print node['id']

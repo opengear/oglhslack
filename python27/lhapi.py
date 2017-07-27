@@ -1,23 +1,17 @@
 #!/usr/bin/env python
 
-import os
-import sys
-import time
-import requests
+import os, sys, time, requests
 from requests.packages.urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
-import json
-import urllib
-import re
-import textwrap
+import json, urllib, re, textwrap
 from slackclient import SlackClient
-
-#from functools import reduce
 from functools import wraps
 
 def ensure_auth(f):
-    """ makes sure the client has a valid token
-    when a function is called
+    """
+    makes sure the client has a valid token when a function is called
+    the call is going to be made once, in case of not authenticated,
+    it will try to authenticate and call the function again
     """
     def wrapper(*args):
         result = f(*args)
@@ -32,7 +26,12 @@ def ensure_auth(f):
     return wrapper
 
 class MinimalService:
+
     def __init__(self, client, service_name):
+        """
+        :client is a LighthouseApiClient
+        :service_name is a prefix path for the used methods
+        """
         self.client = client
         self.service_name = service_name
 
@@ -40,10 +39,19 @@ class MinimalService:
         return self.client.get(self.service_name)
 
     def update(self, id, service):
+        """
+        :id the id of the object which is going to be updated
+        :service stands for the object which is going to be updated
+        """
         return self.client.put(self.service_name, id, service)
 
 class DefaultService:
+
     def __init__(self, client, service_name):
+        """
+        :client is a LighthouseApiClient
+        :service_name is a prefix path for the used methods
+        """
         self.client = client
         self.service_name = service_name
 
@@ -66,6 +74,7 @@ class LighthouseApiClient:
     """
     the basic API client, with methods for GET, POST, PUT, and DELETE
     """
+
     def __init__(self):
         self.url = 'https://oglh-octo.opengear.com'
         requests.packages.urllib3.disable_warnings()
@@ -77,9 +86,6 @@ class LighthouseApiClient:
         self.token_timeout = 5 * 60
         self.pending_name_ids = {}
         self.s = requests.Session()
-        #retries = Retry(total=5, backoff_factor=0.2, status_forcelist=[ 401, 500 ])
-        #self.s.mount('https://', HTTPAdapter(max_retries=retries))
-        #self._do_auth()
 
     def _headers(self):
         headers = { 'Content-type' : 'application/json' }
@@ -99,6 +105,7 @@ class LighthouseApiClient:
         except Exception as e:
             print e
             return
+
         body = json.loads(r.text)
 
         self.token = body['session']
@@ -110,10 +117,8 @@ class LighthouseApiClient:
 
     def _parse_response(self, response):
         try:
-            #response.raise_for_status()
             return json.loads(response.text)
         except ValueError:
-            #raise Exception('Invalid response')
             return response.text
 
     @ensure_auth
@@ -133,14 +138,14 @@ class LighthouseApiClient:
 
     @ensure_auth
     def put(self, path, obj_id, data={}):
-        url = self._get_api_url('%s/%s' % (path, obj_id))
+        url = self._get_api_url('%s/%s' % (path, obj_id) if obj_id else path)
         r = self.s.put(url, headers=self._headers(), data=json.dumps(data), \
             verify=False)
         return self._parse_response(r)
 
     @ensure_auth
     def delete(self, path, obj_id):
-        url = self._get_api_url('%s/%s' % (path, obj_id))
+        url = self._get_api_url('%s/%s' % (path, obj_id) if obj_id else path)
         r = self.s.delete(url, headers=self._headers(), verify=False)
         return self._parse_response(r)
 
@@ -368,7 +373,7 @@ class NodesService(DefaultService):
         return self.client.get('ports/%s' % id)
 
     def delete(self, id):
-        raise Exception('It is not possible to delete Nodes')
+        raise RuntimeError('It is not possible to delete Nodes')
 
 class ServicesService:
     def __init__(self, client):
@@ -388,7 +393,7 @@ class GlobalTagsService(DefaultService):
         DefaultService.__init__(self, client, 'tags/node_tags')
 
     def find(self, id):
-        raise Exception('It is not possible to retrieve a single tag')
+        raise RuntimeError('It is not possible to retrieve a single tag')
 
 class InterfacesService:
     def __init__(self, client):
@@ -438,7 +443,7 @@ class BundlesService(DefaultService):
         DefaultService.__init__(self, client, 'bundles')
 
     def delete(self, id):
-        raise Exception('It is not possible to delete Bundles')
+        raise RuntimeError('It is not possible to delete Bundles')
 
     def automatic_tags(self, id):
         """
