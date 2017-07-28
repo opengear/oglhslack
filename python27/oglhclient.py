@@ -42,11 +42,9 @@ class LighthouseApiClient:
         self.token = None
         self.token_timeout = 5 * 60
         self.pending_name_ids = {}
-
         self.s = requests.Session()
         retries = Retry(total=5, backoff_factor=0.2, status_forcelist=[ 401, 500 ])
         self.s.mount('https://', HTTPAdapter(max_retries=retries))
-
         #self._do_auth()
 
     def _headers(self):

@@ -3,3 +3,7 @@
 
 # ignore test files
 *test.py
+
+# jupyter stuff
+.ipynb_checkpoints/*
+*.ipynb
