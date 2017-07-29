@@ -110,10 +110,9 @@ class LighthouseApiClient:
         return self._parse_response(r)
 
     def get_client(self):
-        return self._get_client(self.raml, 0, '')
+        return self._get_client(self.raml, '')
 
-    def _get_client(self, node, level, path):
-
+    def _get_client(self, node, path):
         top_children = set([key.split('/')[1] for key in node.keys() \
             if re.match('^\/', key) and len(key.split('/')) == 2])
 
@@ -144,11 +143,11 @@ class LighthouseApiClient:
 
         for k in top_children:
             if re.match('\{.+\}', k):
-                inner_props = self._get_client(node['/' + k], level + 4, path + '/' + k)
+                inner_props = self._get_client(node['/' + k], path + '/' + k)
                 for l in inner_props._asdict():
                     kwargs[l] = inner_props._asdict()[l]
             else:
-                kwargs[k] = self._get_client(node['/' + k], level + 4, path + '/' + k)
+                kwargs[k] = self._get_client(node['/' + k], path + '/' + k)
 
         for k in list(middle_children):
             subargs = {}
@@ -157,7 +156,8 @@ class LighthouseApiClient:
             else:
                 for s in [l for l in list(sub_children) if re.match('^' + k, l)]:
                     sub = re.sub('^' + k + '__', '', s)
-                    subargs[sub] = self._get_client(node['/' + k + '/' + sub], level + 4, path + '/' + k + '/' + sub)
+                    subargs[sub] = self._get_client(node['/' + k + '/' + sub], \
+                        path + '/' + k + '/' + sub)
             SubClient = namedtuple('SubClient', ' '.join(subargs.keys()))
             kwargs[k] = SubClient(**subargs)
 
