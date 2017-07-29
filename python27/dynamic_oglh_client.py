@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 
 import os, sys, time, requests, json, urllib, re, textwrap, yaml, urlparse
 from requests.packages.urllib3.util.retry import Retry
@@ -81,9 +81,10 @@ class LighthouseApiClient:
 
     @ensure_auth
     def get(self, path, *args, **kwargs):
-        params = urllib.urlencode(kwargs)
-        url = self._get_api_url(path)
-        path = str.format(path, id=args[0])
+        params = urllib.urlencode({ k: v for k,v in kwargs.iteritems() \
+            if not re.match('.*\{' + k + '\}', path) })
+        url = self._get_api_url(str.format(path, **kwargs))
+        print url
         r = self.s.get(url, headers=self._headers(), params=params, \
             verify=False)
         return self._parse_response(r)
@@ -148,6 +149,17 @@ class LighthouseApiClient:
                     kwargs[l] = inner_props._asdict()[l]
             else:
                 kwargs[k] = self._get_client(node['/' + k], level + 4, path + '/' + k)
+
+        for k in list(middle_children):
+            subargs = {}
+            if re.match('\{.+\}', k):
+                continue
+            else:
+                for s in [l for l in list(sub_children) if re.match('^' + k, l)]:
+                    sub = re.sub('^' + k + '__', '', s)
+                    subargs[sub] = self._get_client(node['/' + k + '/' + sub], level + 4, path + '/' + k + '/' + sub)
+            SubClient = namedtuple('SubClient', ' '.join(subargs.keys()))
+            kwargs[k] = SubClient(**subargs)
 
         SynClient = namedtuple('SynClient', ' '.join(kwargs.keys()))
         return SynClient(**kwargs)
