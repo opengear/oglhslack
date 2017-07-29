@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os, sys, time, requests, json, urllib, re, textwrap, yaml
+import os, sys, time, requests, json, urllib, re, textwrap, yaml, urlparse
 from requests.packages.urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from collections import namedtuple
@@ -13,15 +13,15 @@ def ensure_auth(f):
     the call is going to be made once, in case of not authenticated,
     it will try to authenticate and call the function again
     """
-    def wrapper(*args):
-        result = f(*args)
+    def wrapper(*args, **kwargs):
+        result = f(*args, **kwargs)
         if type(result) is dict and 'error' in result and \
                 len(result['error']) > 0 and \
                 result['error'][0]['level'] == 1 and \
                 result['error'][0]['type'] == 7 and \
 		        result['error'][0]['text'] == 'Invalid session ID':
             args[0]._do_auth()
-            return f(*args)
+            return f(*args, **kwargs)
         return result
     return wrapper
 
@@ -52,7 +52,7 @@ class LighthouseApiClient:
         return headers
 
     def _do_auth(self):
-        url = self._get_api_url('sessions')
+        url = self._get_api_url('/sessions')
         data = { 'username' : self.username, 'password' : self.password }
         self.token = None
 
@@ -71,7 +71,7 @@ class LighthouseApiClient:
             raise RuntimeError('Auth failed')
 
     def _get_api_url(self, path):
-        return '%s/%s' % (self.api_url, path)
+        return self.api_url + path
 
     def _parse_response(self, response):
         try:
@@ -80,29 +80,30 @@ class LighthouseApiClient:
             return response.text
 
     @ensure_auth
-    def get(self, path, data={}):
-        params = urllib.urlencode(data)
+    def get(self, path, *args, **kwargs):
+        params = urllib.urlencode(kwargs)
         url = self._get_api_url(path)
+        path = str.format(path, id=args[0])
         r = self.s.get(url, headers=self._headers(), params=params, \
             verify=False)
         return self._parse_response(r)
 
     @ensure_auth
-    def post(self, path, data={}):
-        url = self._get_api_url(path)
+    def post(self, path, *args, **kwargs):
+        url = self._get_api_url(kwargs)
         r = self.s.post(url, headers=self._headers(), data=json.dumps(data), \
             verify=False)
         return self._parse_response(r)
 
     @ensure_auth
-    def put(self, path, obj_id, data={}):
+    def put(self, path, obj_id, *args, **kwargs):
         url = self._get_api_url('%s/%s' % (path, obj_id) if obj_id else path)
-        r = self.s.put(url, headers=self._headers(), data=json.dumps(data), \
+        r = self.s.put(url, headers=self._headers(), data=json.dumps(kwargs), \
             verify=False)
         return self._parse_response(r)
 
     @ensure_auth
-    def delete(self, path, obj_id):
+    def delete(self, path, obj_id, *args):
         url = self._get_api_url('%s/%s' % (path, obj_id) if obj_id else path)
         r = self.s.delete(url, headers=self._headers(), verify=False)
         return self._parse_response(r)
@@ -132,7 +133,11 @@ class LighthouseApiClient:
             elif k == 'get':
                 kwargs['get'] = partial(self.get, path)
             elif k == 'put':
-                kwargs['update'] = partial(self.get, path)
+                kwargs['update'] = partial(self.put, path)
+            elif k == 'post':
+                kwargs['update'] = partial(self.post, path)
+            elif k == 'delete':
+                kwargs['delete'] = partial(self.delete, path)
             else:
                 kwargs[k] = node[k]
 
