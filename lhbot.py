@@ -190,7 +190,6 @@ class LighthouseApiClient:
 					deleted_names.append(node['name'])
 		return deleted_names
 
-
 	def _approve_node(self, node):
 		url = self.api_url + '/nodes' + '/' + node['id']
 
@@ -234,7 +233,6 @@ class LighthouseApiClient:
 		if not self.token or self.token_timeout <= 0:
 			self._do_auth()
 		self.token_timeout -= elapsed_seconds
-
 
 class LighthouseBot:
 
@@ -425,7 +423,7 @@ class LighthouseBot:
 		return 'nobody'
 
 	def _show_help(self):
-		return textwrap.dedent(""" 
+		return textwrap.dedent("""
 			```
 			@""" + self.bot_name + """ devices       Show you all the managed devices I've got
 			@""" + self.bot_name + """ ssh <device>  Get you an SSH link to managed device

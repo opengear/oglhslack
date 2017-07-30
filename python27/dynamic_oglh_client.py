@@ -55,7 +55,6 @@ class LighthouseApiClient:
         url = self._get_api_url('/sessions')
         data = { 'username' : self.username, 'password' : self.password }
         self.token = None
-
         try:
             r = self.s.post(url, headers=self._headers(), \
                 data=json.dumps(data), verify=False)
@@ -63,12 +62,11 @@ class LighthouseApiClient:
         except Exception as e:
             print e
             return
-
         body = json.loads(r.text)
-
         self.token = body['session']
         if not self.token:
             raise RuntimeError('Auth failed')
+        self.s.headers = self._headers()
 
     def _get_api_url(self, path):
         return self.api_url + path
@@ -79,34 +77,40 @@ class LighthouseApiClient:
         except ValueError:
             return response.text
 
-    @ensure_auth
-    def get(self, path, *args, **kwargs):
+    def _get_url_params(self, path, **kwargs):
         params = urllib.urlencode({ k: v for k,v in kwargs.iteritems() \
             if not re.match('.*\{' + k + '\}', path) })
         url = self._get_api_url(str.format(path, **kwargs))
-        print url
-        r = self.s.get(url, headers=self._headers(), params=params, \
-            verify=False)
+        return url, params
+
+    def _get_url_data(self, path, **kwargs):
+        data = { k: v for k,v in kwargs.iteritems() \
+            if not re.match('.*\{' + k + '\}', path) }
+        url = self._get_api_url(str.format(path, **kwargs))
+        return url, data
+
+    @ensure_auth
+    def get(self, path, *args, **kwargs):
+        url, params = self._get_url_params(path, **kwargs)
+        r = self.s.get(url, params=params, verify=False)
         return self._parse_response(r)
 
     @ensure_auth
     def post(self, path, *args, **kwargs):
-        url = self._get_api_url(kwargs)
-        r = self.s.post(url, headers=self._headers(), data=json.dumps(data), \
-            verify=False)
+        url, data = self._get_url_data(path, **kwargs)
+        r = self.s.post(url, data=json.dumps(data), verify=False)
         return self._parse_response(r)
 
     @ensure_auth
-    def put(self, path, obj_id, *args, **kwargs):
-        url = self._get_api_url('%s/%s' % (path, obj_id) if obj_id else path)
-        r = self.s.put(url, headers=self._headers(), data=json.dumps(kwargs), \
-            verify=False)
+    def put(self, path, *args, **kwargs):
+        url, data = self._get_url_data(path, **kwargs)
+        r = self.s.put(url, data=json.dumps(data), verify=False)
         return self._parse_response(r)
 
     @ensure_auth
-    def delete(self, path, obj_id, *args):
-        url = self._get_api_url('%s/%s' % (path, obj_id) if obj_id else path)
-        r = self.s.delete(url, headers=self._headers(), verify=False)
+    def delete(self, path, *args, **kwargs):
+        url, _ = self._get_url_data(path, **kwargs)
+        r = self.s.delete(url, verify=False)
         return self._parse_response(r)
 
     def get_client(self):
@@ -115,27 +119,24 @@ class LighthouseApiClient:
     def _get_client(self, node, path):
         top_children = set([key.split('/')[1] for key in node.keys() \
             if re.match('^\/', key) and len(key.split('/')) == 2])
-
         sub_children = set(['__'.join(key.split('/')[1:]) for key in node.keys() \
             if re.match('^\/', key) and len(key.split('/')) > 2])
-
         middle_children = set([s.split('__')[0] for s in sub_children])
-
         actions = set([key for key in node.keys() if re.match('^[^\/]', key)])
 
         kwargs = { 'path': path }
 
         for k in actions:
-            if k == 'get' and len([l for l in top_children \
-                if re.match('\{.+\}', l)]) > 0:
-                #kwargs['list'] = node[k]
+            if k == 'get' and re.match('.*(I|i)d\}$', path):
+                kwargs['find'] = partial(self.get, path)
+            elif k == 'get' and len([l for l in top_children if re.match('\{.+\}', l)]) > 0:
                 kwargs['list'] = partial(self.get, path)
             elif k == 'get':
                 kwargs['get'] = partial(self.get, path)
             elif k == 'put':
                 kwargs['update'] = partial(self.put, path)
             elif k == 'post':
-                kwargs['update'] = partial(self.post, path)
+                kwargs['create'] = partial(self.post, path)
             elif k == 'delete':
                 kwargs['delete'] = partial(self.delete, path)
             else:

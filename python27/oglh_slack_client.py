@@ -5,11 +5,6 @@ from slackclient import SlackClient
 from functools import wraps
 
 def ensure_auth(f):
-    """
-    makes sure the client has a valid token when a function is called
-    the call is going to be made once, in case of not authenticated,
-    it will try to authenticate and call the function again
-    """
     def wrapper(*args):
         try:
             result = f(*args)

@@ -1,8 +1,14 @@
 import dynamic_oglh_client
 client = dynamic_oglh_client.LighthouseApiClient()
 client = client.get_client()
+body = client.nodes.list()
 
-print(client.system.time.get())
+for node in body['nodes']:
+    if node['approved'] == 0:
+        print node['id']
+
+#print client.nodes.smartgroups.find(groupId='smart_groups_nodes_groups-2')
+#print(client.system.time.get())
 #print(client.services.https.get())
 #print(client.nodes.list())
 #print(client.nodes.list(per_page=1, page=3))
