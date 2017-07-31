@@ -5,11 +5,6 @@ from oglh_client import LighthouseApi
 from slackclient import SlackClient
 from functools import wraps
 
-logging.basicConfig(level=logging.INFO,
-                    filename='oglh_slack_bot.log',
-                    format='%(asctime)s - [%(levelname)s] (%(threadName)-10s) %(message)s',
-                    )
-
 def report_failure(f):
     def wrapper(*args):
         try:
@@ -30,6 +25,8 @@ class OgLhSlackBot:
         self.lh_client = self.lh_api.get_client()
 
         self.poll_max_workers = multiprocessing.cpu_count()
+        self.semaphores = threading.BoundedSemaphore(value=self.poll_max_workers)
+
         self.poll_count = 0
         self.poll_interval = 1
         self.func_intents = { \
@@ -304,23 +301,33 @@ class OgLhSlackBot:
         return ' '.join(sanitised)
 
     def _command(self, command, channel, user_id):
-        response = ''
-        username = self._get_slack_username(user_id)
-        self._logging('Got command: `' + command + '`, from: ' + username + '')
+        try:
+            self.semaphores.acquire()
 
-        if user_id:
-            response = '<@' + user_id + '|' + username + '> '
-        output = self._show_help()
-        intent, _, scope = command.partition(' ')
-        for func, intents in self.func_intents.iteritems():
-            if intent in intents:
-                output = func(self._sanitise(scope), username)
-                break
-        if not output:
-            return
+            response = ''
+            username = self._get_slack_username(user_id)
 
-        response = response + output
-        self._logging('Responding: ' + response)
+            self._logging('Got command: `' + command + '`, from: ' + username + '')
+
+            if user_id:
+                response = '<@' + user_id + '|' + username + '> '
+
+            output = self._show_help()
+            intent, _, scope = command.partition(' ')
+
+            for func, intents in self.func_intents.iteritems():
+                if intent in intents:
+                    output = func(self._sanitise(scope), username)
+                    break
+
+            if not output:
+                return
+
+            response = response + output
+            self._logging('Responding: ' + response)
+        finally:
+            self.semaphores.release()
+
         try:
             self.slack_client.api_call('chat.postMessage', channel=channel, \
                 text=response, as_user=True)
@@ -346,6 +353,7 @@ class OgLhSlackBot:
             if command and channel and user_id:
                 t = threading.Thread(name='', target=self._command, \
                     args=(command, channel, user_id))
+                t.setDaemon(True)
                 t.start()
                 #self._command(command, channel, user_id)
 
@@ -376,5 +384,8 @@ class OgLhSlackBot:
             logging.info(message)
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, filename='oglh_slack_bot.log',
+        format='%(asctime)s - [%(levelname)s] (%(threadName)-10s) %(message)s',
+    )
     slack_bot = OgLhSlackBot()
     slack_bot.listen()
