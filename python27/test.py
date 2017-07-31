@@ -1,12 +1,7 @@
-import dynamic_oglh_client
-client = dynamic_oglh_client.LighthouseApiClient()
-client = client.get_client()
-body = client.nodes.list()
-
-for node in body['nodes']:
-    if node['approved'] == 0:
-        print node['id']
-
+import oglh_client
+client = oglh_client.LighthouseApi().get_client()
+#print client.stats.nodes.connection_summary.get()
+print client.nodes.list({ 'port:label' : 'demo-rg' })
 #print client.nodes.smartgroups.find(groupId='smart_groups_nodes_groups-2')
 #print(client.system.time.get())
 #print(client.services.https.get())

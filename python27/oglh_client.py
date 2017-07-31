@@ -25,7 +25,7 @@ def ensure_auth(f):
         return result
     return wrapper
 
-class LighthouseApiClient:
+class LighthouseApi:
     """
     the basic API client, with methods for GET, POST, PUT, and DELETE
     """
@@ -77,40 +77,44 @@ class LighthouseApiClient:
         except ValueError:
             return response.text
 
-    def _get_url_params(self, path, **kwargs):
+    def _get_url(self, path, **kwargs):
+        return self._get_api_url(str.format(path, **kwargs))
+
+    def _get_url_params(self, path, *args, **kwargs):
+        for a in args:
+            if type(a) is dict:
+                kwargs.update(a)
         params = urllib.urlencode({ k: v for k,v in kwargs.iteritems() \
             if not re.match('.*\{' + k + '\}', path) })
-        url = self._get_api_url(str.format(path, **kwargs))
-        return url, params
-
-    def _get_url_data(self, path, **kwargs):
-        data = { k: v for k,v in kwargs.iteritems() \
-            if not re.match('.*\{' + k + '\}', path) }
-        url = self._get_api_url(str.format(path, **kwargs))
-        return url, data
+        return self._get_url(path, **kwargs), params
 
     @ensure_auth
     def get(self, path, *args, **kwargs):
-        url, params = self._get_url_params(path, **kwargs)
+        url, params = self._get_url_params(path, *args, **kwargs)
         r = self.s.get(url, params=params, verify=False)
         return self._parse_response(r)
 
     @ensure_auth
-    def post(self, path, *args, **kwargs):
-        url, data = self._get_url_data(path, **kwargs)
+    def post(self, path, data={}, **kwargs):
+        if 'data' in kwargs and data == {}:
+            data = kwargs['data']
+            del kwargs['data']
+        url = self._get_url(path, **kwargs)
         r = self.s.post(url, data=json.dumps(data), verify=False)
         return self._parse_response(r)
 
     @ensure_auth
-    def put(self, path, *args, **kwargs):
-        url, data = self._get_url_data(path, **kwargs)
+    def put(self, path, data, **kwargs):
+        if 'data' in kwargs and data == {}:
+            data = kwargs['data']
+            del kwargs['data']
+        url = self._get_url(path, **kwargs)
         r = self.s.put(url, data=json.dumps(data), verify=False)
         return self._parse_response(r)
 
     @ensure_auth
-    def delete(self, path, *args, **kwargs):
-        url, _ = self._get_url_data(path, **kwargs)
-        r = self.s.delete(url, verify=False)
+    def delete(self, path, **kwargs):
+        r = self.s.delete(self._get_url(path, **kwargs), verify=False)
         return self._parse_response(r)
 
     def get_client(self):

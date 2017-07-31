@@ -7,3 +7,6 @@
 # jupyter stuff
 .ipynb_checkpoints/*
 *.ipynb
+
+# ignore log files
+*.log
