@@ -13,22 +13,31 @@ def report_failure(f):
             args[0]._warning_message(str(error))
     return wrapper
 
+class OgLhSimpleClient:
+    """
+    Provides a minimum user of the LighthouseApi with methods that return
+    parsed responses rather than the actual JSON responses
+    """
+
 class OgLhSlackBot:
+    """
+
+    """
+
     def __init__(self):
         self.bot_name = os.environ.get('SLACK_BOT_NAME')
-
         self.default_channel = os.environ.get('SLACK_BOT_DEFAULT_CHANNEL')
         self.default_log_channel = os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
-
         self.slack_client = SlackClient(os.environ.get('SLACK_BOT_TOKEN'))
+
         self.lh_api = LighthouseApi()
         self.lh_client = self.lh_api.get_client()
 
         self.poll_max_workers = multiprocessing.cpu_count()
         self.semaphores = threading.BoundedSemaphore(value=self.poll_max_workers)
 
-        self.poll_count = 0
         self.poll_interval = 1
+
         self.func_intents = { \
             self._get_port_ssh : { 'ssh', 'sshlink' }, \
             self._get_port_web : { 'web', 'webterm', 'weblink' }, \
@@ -127,6 +136,11 @@ class OgLhSlackBot:
                 if self._approve_node(node):
                     approved_names.append(node['name'])
         return approved_names
+
+
+
+
+
 
     def _get_bot_id(self):
         try:
@@ -303,7 +317,7 @@ class OgLhSlackBot:
     def _command(self, command, channel, user_id):
         try:
             self.semaphores.acquire()
-
+            print 'fired: ' + threading.currentThread().getName()
             response = ''
             username = self._get_slack_username(user_id)
 
@@ -349,18 +363,11 @@ class OgLhSlackBot:
                 command, channel, user_id = self._read(self.slack_client.rtm_read())
             except:
                 raise RuntimeError('Slack read failed')
-
             if command and channel and user_id:
                 t = threading.Thread(name='', target=self._command, \
                     args=(command, channel, user_id))
                 t.setDaemon(True)
                 t.start()
-                #self._command(command, channel, user_id)
-
-            #if self.poll_count % 10 == 0:
-            #    self._command('pending new_only', '#general', None)
-
-            #self.poll_count += self.poll_interval
             time.sleep(self.poll_interval)
 
     def _warning_message(self, message):
@@ -385,7 +392,6 @@ class OgLhSlackBot:
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, filename='oglh_slack_bot.log',
-        format='%(asctime)s - [%(levelname)s] (%(threadName)-10s) %(message)s',
-    )
+        format='%(asctime)s - [%(levelname)s] (%(threadName)-10s) %(message)s')
     slack_bot = OgLhSlackBot()
     slack_bot.listen()
