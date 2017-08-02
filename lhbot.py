@@ -473,6 +473,7 @@ class LighthouseBot:
 		except:
 			raise RuntimeError('Slack post failed')
 
+    @retry(Exception, tries=5)
 	def _read(self, output_list):
 		if output_list and len(output_list) > 0:
 			for output in output_list:
