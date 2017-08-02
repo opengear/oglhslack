@@ -12,8 +12,8 @@ The client is tightly tied to the RESTfull API [RAML specification](http://ftp.o
 
 The **Lighthouse API Client** expects to find the following environment variables:
 
-- `OGLH_API_USER` a valid Lighthouse user
-- `OGLH_API_PASS` a valid Lighthouse user's password
+- **(required)** `OGLH_API_USER` a valid Lighthouse user
+- **(required)** `OGLH_API_PASS` a valid Lighthouse user's password
 
 ### Conventions
 
@@ -40,7 +40,7 @@ Used when asking for a specific object
 Example:
 
 ```
-GET /nodes/smartgroups/{groupId}
+GET /nodes/smartgroups/myGrouId HTTP/1.0
 ```
 
 Becomes:
@@ -55,7 +55,7 @@ Used when asking for a list of objects
 Example:
 
 ```
-GET /nodes/smartgroups
+GET /nodes/smartgroups HTTP/1.0
 ```
 
 Becomes:
@@ -74,7 +74,7 @@ smartgroups = client.nodes.smartgroups.list(page=1,per_page=5)
 Only used when the two prevous do not apply, like:
 
 ```
-GET /system/webui_session_timeout
+GET /system/webui_session_timeout HTTP/1.0
 ```
 
 Becomes:
@@ -88,32 +88,80 @@ timeout = client.system.webui_session_timeout.get()
 As the name suggests, it is used to create objects, for instance:
 
 ```
-POST /sessions HTTP/1.0
+POST /tags/node_tags HTTP/1.0
 Content-Type: application/json
 
-username=root&password=default
+{"node_tag": {"name": "Location","values": [{"value": "USA.NewYork"},{"value": "UK.London"}]}}
 ```
 
 could be performed as:
 
 ```python
-session = client.sessions.create(data={"username":"root","password":"default"})
+result = client.tags.node_tags.create(data={"username":"root","password":"default"})
 ```
 
 #### **PUT**: `update()`
+It is used to update a given object, like:
 
+```
+PUT /tags/node_tags/nodes_tags-1 HTTP/1.0
+Content-Type: application/json
 
+data = {"node_tag": {"name": "Location","values": [{"id": "tags_node_tags_values_90","value": "USA.NewYork"}]}}
+```
+
+could be performed as:
+
+```python
+data = {
+  "node_tag": {
+    "name": "Location",
+    "values": [
+      {
+        "id": "tags_node_tags_values_90",
+        "value": "USA.NewYork"
+      }
+    ]
+  }
+}
+result = client.tags.node_tags.update(tag_value_id='nodes_tags-1', data=data)
+```
 
 #### **DELETE**: `delete()`
 
+It is used for deleting an object by its `id`, for instance:
 
+```
+DELETE /tags/node_tags/nodes_tags-1 HTTP/1.0
+```
 
+could be performed as:
 
+```python
+result = client.tags.node_tags.delete(tag_value_id='nodes_tags-1')
+```
 
 ## Lighthouse Slack Bot
 
---/--
+The Slack Bot is a playful example of how to use the **Lighthouse API Client library**.
 
-## Lighthouse Slack Bot (Docker image)
+It expects to find the following environment variables:
 
---/--
+- **(required)** `SLACK_BOT_TOKEN` which is provided by Slack at the moment of [creating a bot](https://api.slack.com/bot-users).
+- **(required)** `SLACK_BOT_NAME` is the name given to the Slack bot.
+- **(required)** `SLACK_BOT_DEFAULT` a default Slack channel name used for warnings.
+- **(optional)** `SLACK_BOT_DEFAULT_LOG_CHANNEL` a Slack channel name for logs, if it is not provided, logs will be printed to a file only, but logs classified as high priority like warnings and errors will be printed to the `SLACK_BOT_DEFAULT` when `SLACK_BOT_DEFAULT_LOG_CHANNEL` is not set.
+
+The **Lighhouse** Slack bot can be triggered as simple as:
+
+```python
+>>> from oglh_bot import OgLhSlackBot
+>>> slack_bot = OgLhSlackBot()
+>>> slack_bot.listen()
+```
+
+Or, straight from the terminal:
+
+```bash
+$ python oglh_bot.py
+```

@@ -52,17 +52,8 @@ class LighthouseApi:
         return headers
 
     def _do_auth(self):
-        url = self._get_api_url('/sessions')
         data = { 'username' : self.username, 'password' : self.password }
-        self.token = None
-        try:
-            r = self.s.post(url, headers=self._headers(), \
-                data=json.dumps(data), verify=False)
-            r.raise_for_status()
-        except Exception as e:
-            print e
-            return
-        body = json.loads(r.text)
+        body = self.post('/sessions', data=data)
         self.token = body['session']
         if not self.token:
             raise RuntimeError('Auth failed')
