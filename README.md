@@ -20,7 +20,7 @@ The **Lighthouse API Client** expects to find the following environment variable
 All the methods follow the convention specified as follows. A call for an *url* like:
 
 ```
-GET /system/global_enrollment_token
+GET /system/global_enrollment_token HTTP/1.0
 ```
 
 would be performed through the client as:
@@ -107,7 +107,7 @@ It is used to update a given object, like:
 PUT /tags/node_tags/nodes_tags-1 HTTP/1.0
 Content-Type: application/json
 
-data = {"node_tag": {"name": "Location","values": [{"id": "tags_node_tags_values_90","value": "USA.NewYork"}]}}
+{"node_tag": {"name": "Location","values": [{"id": "tags_node_tags_values_90","value": "USA.NewYork"}]}}
 ```
 
 could be performed as:
