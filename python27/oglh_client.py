@@ -19,7 +19,7 @@ def ensure_auth(f):
                 len(result['error']) > 0 and \
                 result['error'][0]['level'] == 1 and \
                 result['error'][0]['type'] == 7 and \
-		        result['error'][0]['text'] == 'Invalid session ID':
+                result['error'][0]['text'] == 'Invalid session ID':
             args[0]._do_auth()
             return f(*args, **kwargs)
         return result
@@ -84,6 +84,31 @@ class LighthouseApi:
         url, params = self._get_url_params(path, *args, **kwargs)
         r = self.s.get(url, params=params, verify=False)
         return self._parse_response(r)
+    
+    @ensure_auth
+    def find(self, path, *args, **kwargs):
+        if len(args) == 1 and len(kwargs) == 0:
+            id_name = re.sub(r'\{(.*)\}', r'\1', path.split('/')[-1])
+            kwargs = { id_name: args[0] }
+            args = []
+        elif len(args) == 0 and len(kwargs) > 1:
+            child_name = re.sub(r'\{(.*)\}', r'\1', path.split('/')[-1])
+            if 'id' in kwargs:
+                kwargs[child_name] = kwargs['id']
+                del kwargs['id']
+                
+            if re.match('.*\{id}', path):
+                parent_name = re.sub('s$','',re.sub('ies$','y',path.split('/')[1]))
+                if 'parent_id' in kwargs:
+                    kwargs['id'] = kwargs['parent_id']
+                    del kwargs['parent_id']
+                elif parent_name in kwargs:
+                    kwargs['id'] = kwargs[parent_name]
+                    del kwargs[parent_name]
+        
+        url, params = self._get_url_params(path, *args, **kwargs)
+        r = self.s.get(url, params=params, verify=False)
+        return self._parse_response(r)
 
     @ensure_auth
     def post(self, path, data={}, **kwargs):
@@ -123,7 +148,7 @@ class LighthouseApi:
 
         for k in actions:
             if k == 'get' and re.match('.*(I|i)d\}$', path):
-                kwargs['find'] = partial(self.get, path)
+                kwargs['find'] = partial(self.find, path)
             elif k == 'get' and len([l for l in top_children if re.match('\{.+\}', l)]) > 0:
                 kwargs['list'] = partial(self.get, path)
             elif k == 'get':

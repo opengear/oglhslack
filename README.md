@@ -6,7 +6,7 @@ It also provides a ready to go implementation of the API client as a Slack Bot, 
 
 ## Lighthouse API Client library
 
-The client is tightly tied to the RESTfull API [RAML specification](http://ftp.opengear.com/download/api/lighthouse/og-rest-api-specification-v1.raml).
+The client is tightly tied to the RESTfull API [RAML specification](http://ftp.opengear.com/download/api/lighthouse/og-rest-api-specification-v1.raml), which is very well exposed [here](http://ftp.opengear.com/download/api/lighthouse/og-rest-api-specification-v1.html).
 
 ### Authentication
 
@@ -46,9 +46,38 @@ GET /nodes/smartgroups/myGrouId HTTP/1.0
 Becomes:
 
 ```python
-smartgroup = client.nodes.smartgroups.find(groupId='myGrouId')
+smartgroup = client.nodes.smartgroups.find(id='myGrouId')
 ```
 
+or
+
+```python
+smartgroup = client.nodes.smartgroups.find('myGrouId')
+```
+
+In case of a child object like in `/nodes/{id}/tags/{tag_value_id}`, with a possible call like:
+
+```
+GET /nodes/nodes-13/tags/London HTTP/1.0
+```
+
+The python call should be:
+
+
+```python
+tag = client.nodes.tags.find(id='myTagId', parent_id='myNodeId')
+```
+
+Also possible to make:
+
+```python
+tag = client.nodes.tags.find(id='myTagId', node_id='myNodeId')
+```
+
+Always paying attention to the simple plural formatting removal:
+
+- `nodes`: node
+- `properties`: property
 #### **GET**: `list()`
 Used when asking for a list of objects
 
@@ -71,7 +100,7 @@ smartgroups = client.nodes.smartgroups.list(page=1,per_page=5)
 ```
 
 #### **GET**: `get()`
-Only used when the two prevous do not apply, like:
+Only used when the two previous do not apply, like:
 
 ```
 GET /system/webui_session_timeout HTTP/1.0
