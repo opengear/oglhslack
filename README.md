@@ -34,7 +34,7 @@ would be performed through the client as:
 
 Basically, all `/` must be replaced by `.` followed by an action:
 
-#### `find()`
+#### GET: `find()`
 Used when asking for a specific object
 
 Example:
@@ -79,7 +79,7 @@ Always paying attention to the simple plural formatting removal:
 - **nodes**: *node*
 - **properties**: *property*
 
-#### `list()`
+#### GET: `list()`
 Used when asking for a list of objects
 
 Example:
@@ -100,7 +100,7 @@ parameters may apply like `page`, `per_page`, and so on:
 smartgroups = client.nodes.smartgroups.list(page=1,per_page=5)
 ```
 
-#### `get()`
+#### GET: `get()`
 Only used when the two previous do not apply, like:
 
 ```
@@ -114,7 +114,7 @@ timeout = client.system.webui_session_timeout.get()
 ```
 
 
-#### `create()`
+#### POST: `create()`
 As the name suggests, it is used to create objects, for instance:
 
 ```
@@ -130,7 +130,7 @@ could be performed as:
 result = client.tags.node_tags.create(data={"username":"root","password":"default"})
 ```
 
-#### `update()`
+#### PUT: `update()`
 It is used to update a given object, like:
 
 ```
@@ -157,7 +157,7 @@ data = {
 result = client.tags.node_tags.update(tag_value_id='nodes_tags-1', data=data)
 ```
 
-#### `delete()`
+#### DELETE: `delete()`
 
 It is used for deleting an object by its `id`, for instance:
 
