@@ -42,7 +42,9 @@ class LighthouseApi:
         self.pending_name_ids = {}
         self.s = requests.Session()
 
-        with open("../og-rest-api-specification-v1.raml", 'r') as stream:
+        ramlfile = os.path.join(os.path.dirname(__file__), \
+            'og-rest-api-specification-v1.raml')
+        with open(ramlfile, 'r') as stream:
             self.raml = yaml.load(stream)
 
     def _headers(self):

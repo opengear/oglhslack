@@ -34,7 +34,7 @@ would be performed through the client as:
 
 Basically, all `/` must be replaced by `.` followed by an action:
 
-#### **GET**: `find()`
+#### `find()`
 Used when asking for a specific object
 
 Example:
@@ -76,9 +76,10 @@ tag = client.nodes.tags.find(id='myTagId', node_id='myNodeId')
 
 Always paying attention to the simple plural formatting removal:
 
-- `nodes`: node
-- `properties`: property
-#### **GET**: `list()`
+- **nodes**: *node*
+- **properties**: *property*
+
+#### `list()`
 Used when asking for a list of objects
 
 Example:
@@ -99,7 +100,7 @@ parameters may apply like `page`, `per_page`, and so on:
 smartgroups = client.nodes.smartgroups.list(page=1,per_page=5)
 ```
 
-#### **GET**: `get()`
+#### `get()`
 Only used when the two previous do not apply, like:
 
 ```
@@ -113,7 +114,7 @@ timeout = client.system.webui_session_timeout.get()
 ```
 
 
-#### **POST**: `create()`
+#### `create()`
 As the name suggests, it is used to create objects, for instance:
 
 ```
@@ -129,7 +130,7 @@ could be performed as:
 result = client.tags.node_tags.create(data={"username":"root","password":"default"})
 ```
 
-#### **PUT**: `update()`
+#### `update()`
 It is used to update a given object, like:
 
 ```
@@ -156,7 +157,7 @@ data = {
 result = client.tags.node_tags.update(tag_value_id='nodes_tags-1', data=data)
 ```
 
-#### **DELETE**: `delete()`
+#### `delete()`
 
 It is used for deleting an object by its `id`, for instance:
 
@@ -179,7 +180,7 @@ It expects to find the following environment variables:
 - **(required)** `SLACK_BOT_TOKEN` which is provided by Slack at the moment of [creating a bot](https://api.slack.com/bot-users).
 - **(required)** `SLACK_BOT_NAME` is the name given to the Slack bot.
 - **(required)** `SLACK_BOT_DEFAULT_CHANNEL` a default Slack channel name used for warnings.
-- **(optional)** `SLACK_BOT_DEFAULT_LOG_CHANNEL` a Slack channel name for logs, if it is not provided, logs will be printed to a file only, but logs classified as high priority like warnings and errors will be printed to the `SLACK_BOT_DEFAULT` when `SLACK_BOT_DEFAULT_LOG_CHANNEL` is not set.
+- **(optional)** `SLACK_BOT_DEFAULT_LOG_CHANNEL` a Slack channel name for logs, if it is not provided, logs will be printed to a file only, but logs classified as high priority like warnings and errors will be printed to the `SLACK_BOT_DEFAULT_CHANNEL` when `SLACK_BOT_DEFAULT_LOG_CHANNEL` is not set.
 
 The **Lighhouse** Slack bot can be triggered as simple as:
 
