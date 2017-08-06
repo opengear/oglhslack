@@ -1,5 +1,7 @@
 import oglh_client
 client = oglh_client.LighthouseApi().get_client()
+print client.nodes.tags.list(parent_id='demo-rg')
+
 #print client.stats.nodes.connection_summary.get()
 #print client.nodes.list({ 'port:label' : 'demo-rg' })
 #print client.nodes.smartgroups.find(groupId='smart_groups_nodes_groups-2')
@@ -9,7 +11,7 @@ client = oglh_client.LighthouseApi().get_client()
 #print(client.nodes.list(per_page=1, page=3))
 #print(client.nodes.ids.get())
 #print(client.nodes.fields.get())
-print(client.nodes.tags.find(parent_id='nodes-13', tag_value_id='London'))
+#print(client.nodes.tags.find(parent_id='nodes-13', tag_value_id='London'))
 #print(client.nodes.tags.list(id='nodes-13'))
 #print(client.nodes.registration_package.get(id='nodes-13'))
 #print(client.nodes.manifest.get())
