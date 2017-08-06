@@ -38,7 +38,6 @@ class LighthouseApi:
         self.username = os.environ.get('OGLH_API_USER')
         self.password = os.environ.get('OGLH_API_PASS')
         self.token = None
-        self.token_timeout = 5 * 60
         self.pending_name_ids = {}
         self.s = requests.Session()
 
