@@ -31,7 +31,7 @@ class LighthouseApi:
     """
 
     def __init__(self):
-        self.url = 'https://oglh-octo.opengear.com'
+        self.url = os.environ.get('OGLH_API_URL')
         requests.packages.urllib3.disable_warnings()
 
         self.api_url = self.url + '/api/v1'

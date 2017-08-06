@@ -14,6 +14,7 @@ The **Lighthouse API Client** expects to find the following environment variable
 
 - **(required)** `OGLH_API_USER` a valid Lighthouse user
 - **(required)** `OGLH_API_PASS` a valid Lighthouse user's password
+- **(required)** `OGLH_API_URL` the Lighthouse API url
 
 ### Conventions
 
