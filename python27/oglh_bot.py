@@ -3,7 +3,7 @@
 import os, signal, textwrap, re, time, multiprocessing, threading
 import logging, logging.handlers
 
-from oglh_client import LighthouseApi
+from oglhclientdev.lhapi import LighthouseApi
 from slackclient import SlackClient
 from functools import wraps
 
@@ -257,7 +257,7 @@ class OgLhSlackBot:
         ports = self.lh_client.get_ports(label)
         urls = self._ports_list_ssh(ports, label, username)
         if not urls:
-            return ':thumbsdown:'
+            return ':x: Problem to create ssh link'
         return '\n'.join(urls)
 
     def _get_port_web(self, label, *_):
@@ -265,7 +265,7 @@ class OgLhSlackBot:
         urls = self._ports_list_web(ports, label)
 
         if not urls:
-            return ':thumbsdown:'
+            return ':x: Problem to create web link.'
         return '\n'.join(urls)
 
     def _get_port(self, label, username):
@@ -275,7 +275,7 @@ class OgLhSlackBot:
 
         urls = [ x for t in zip(ssh_urls, web_urls) for x in t ]
         if not urls:
-            return 'I can\'t seem to find that one :thumbsdown:'
+            return ':x: Device not found. Unable to create ssh link and web link.'
         return '\n'.join(urls)
 
     def _approve_nodes(self, str_names, *_):
@@ -286,9 +286,9 @@ class OgLhSlackBot:
         response = []
         for name in names:
             if name in approved_names:
-                emoji = 'approved :thumbsup:'
+                emoji = ':white_check_mark: Success: Node approved.'
             else:
-                emoji = 'failed :thumbsdown:'
+                emoji = ':x: Error: Node could not be approved. Please check it and try again.'
             response.append(name + ' ' + emoji)
         return self._format_list(response)
 
@@ -300,10 +300,10 @@ class OgLhSlackBot:
         response = []
         for name in names:
             if name in deleted_names:
-                emoji = 'unenrolled :boom:'
+                status_info = ':white_check_mark: Success: '
             else:
-                emoji = 'failed :thumbsdown:'
-            response.append(name + ' ' + emoji)
+                status_info = ':x: Error: It was not possible to unenroll '
+            response.append(status_info + name + '.')
         return self._format_list(response)
 
     def _get_port_labels(self, node_name, *_):
@@ -320,7 +320,7 @@ class OgLhSlackBot:
         if enrolled_nodes:
             response = self._format_list(enrolled_nodes)
         else:
-            response = 'Nothing to see here'
+            response = 'No created node.'
         return response
 
     def _check_pending(self, new_only, *_):
@@ -330,10 +330,10 @@ class OgLhSlackBot:
             return None
 
         if pending_nodes:
-            response = 'Nodes await your approval!\n'
+            response = ':warning: There are some nodes waiting for approval.\n'
             response += self._format_list(pending_nodes)
         else:
-            response = 'Nothing pending, as you were'
+            response = ':white_check_mark: No pending node to approve.'
         return response
 
     def _get_node_summary(self, *_):
@@ -341,21 +341,11 @@ class OgLhSlackBot:
 
         if connected == None:
             return None
-        if disconnected == 0:
-            if connected == 0:
-                response = 'Bored :sleeping:'
-            else:
-                response = 'I\'m super, thanks for asking! :smile:'
-        else:
-            if connected == 0:
-                response = 'Time to panic :fire:'
-            else:
-                response = 'I\'m not so great :frowning:'
 
-        response += '\n```' \
-            'Connected:    %d\n' \
-            'Disconnected: %d\n' \
-            'Pending:      %d```' % (connected, disconnected, pending)
+        response = 'Nodes\' status information:\n' \
+            '> Connected: %d\n' \
+            '> Disconnected: %d\n' \
+            '> Pending: %d' % (connected, disconnected, pending)
 
         return response
 
@@ -379,16 +369,17 @@ class OgLhSlackBot:
     def _show_help(self):
         return textwrap.dedent("""
             ```
-            @""" + self.bot_name + """ devices       Show you all the managed devices I've got
-            @""" + self.bot_name + """ ssh <device>  Get you an SSH link to managed device
-            @""" + self.bot_name + """ web <device>  Get you an web terminal link to managed device
-            @""" + self.bot_name + """ con <device>  Both of the above
-            @""" + self.bot_name + """ sup           Show you node enrollment summary
-            @""" + self.bot_name + """ gui           Get you a link to the Lighthouse web UI
-            @""" + self.bot_name + """ nodes         Show you nodes I've got enrolled
-            @""" + self.bot_name + """ pending       Show you nodes awaiting your approval
-            @""" + self.bot_name + """ ok <node>     Approve a node, or whitespace separated list of nodes
-            @""" + self.bot_name + """ nuke <node>   Unenroll a node, or whitespace separated list of nodes
+            Commands                                 Description                                                            Alias
+            @""" + self.bot_name + """ devices       Shows all the manageable devices available                                 ports, labels
+            @""" + self.bot_name + """ ssh <device>  Gets a SSH link for manageable Device                                      sshlink <device> 
+            @""" + self.bot_name + """ web <device>  Gets a web terminal link for manageable device                             webterm <device>, weblink <device> 
+            @""" + self.bot_name + """ con <device>  Gets both a SSH link and a web terminal link for manageable device         console <device>, gimme <device> 
+            @""" + self.bot_name + """ sup           Shows nodes enrollment summary                                             summary, stats, status, howzit 
+            @""" + self.bot_name + """ gui           Gets a link to the Lighthouse web UI                                       lighthouse, lhweb, webui
+            @""" + self.bot_name + """ nodes         Shows enrolled nodes                                                       enrolled
+            @""" + self.bot_name + """ pending       Shows nodes awaiting approval
+            @""" + self.bot_name + """ ok <node>     Approves a node or a whitespace separated list of nodes                    okay <node>, approve <node>    
+            @""" + self.bot_name + """ nuke <node>   Unenrolls a node or a whitespace separated list of nodes                   kill <node>, delete <node>
             ```
             """)
 
