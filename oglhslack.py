@@ -3,7 +3,7 @@
 import os, signal, textwrap, re, time, multiprocessing, threading
 import logging, logging.handlers
 
-from oglhclientdev.lhapi import LighthouseApi
+from oglhclient import LighthouseApiClient
 from slackclient import SlackClient
 from functools import wraps
 
@@ -29,14 +29,14 @@ def retry(ExceptionToCheck, tries=4, delay=3, backoff=2, logger=None):
     return deco_retry
 
 class OgLhClient:
-    
+
     def __init__(self):
-        self.lh_api = LighthouseApi()
+        self.lh_api = LighthouseApiClient()
         self.url = self.lh_api.url
         self.lh_client = self.lh_api.get_client()
         self.pending_name_ids = {}
         _, _ = self.get_pending()
-    
+
     def get_ports(self, label):
         """
         Return all ports along all nodes such that the port's label matches
@@ -199,7 +199,7 @@ class OgLhSlackBot:
 
         self.poll_max_workers = multiprocessing.cpu_count()
         self.semaphores = threading.BoundedSemaphore(value=self.poll_max_workers)
-        
+
         self.lh_client = OgLhClient()
 
         self.poll_interval = 1
@@ -371,14 +371,14 @@ class OgLhSlackBot:
             ```
             Commands                                 Description                                                            Alias
             @""" + self.bot_name + """ devices       Shows all the manageable devices available                                 ports, labels
-            @""" + self.bot_name + """ ssh <device>  Gets a SSH link for manageable Device                                      sshlink <device> 
-            @""" + self.bot_name + """ web <device>  Gets a web terminal link for manageable device                             webterm <device>, weblink <device> 
-            @""" + self.bot_name + """ con <device>  Gets both a SSH link and a web terminal link for manageable device         console <device>, gimme <device> 
-            @""" + self.bot_name + """ sup           Shows nodes enrollment summary                                             summary, stats, status, howzit 
+            @""" + self.bot_name + """ ssh <device>  Gets a SSH link for manageable Device                                      sshlink <device>
+            @""" + self.bot_name + """ web <device>  Gets a web terminal link for manageable device                             webterm <device>, weblink <device>
+            @""" + self.bot_name + """ con <device>  Gets both a SSH link and a web terminal link for manageable device         console <device>, gimme <device>
+            @""" + self.bot_name + """ sup           Shows nodes enrollment summary                                             summary, stats, status, howzit
             @""" + self.bot_name + """ gui           Gets a link to the Lighthouse web UI                                       lighthouse, lhweb, webui
             @""" + self.bot_name + """ nodes         Shows enrolled nodes                                                       enrolled
             @""" + self.bot_name + """ pending       Shows nodes awaiting approval
-            @""" + self.bot_name + """ ok <node>     Approves a node or a whitespace separated list of nodes                    okay <node>, approve <node>    
+            @""" + self.bot_name + """ ok <node>     Approves a node or a whitespace separated list of nodes                    okay <node>, approve <node>
             @""" + self.bot_name + """ nuke <node>   Unenrolls a node or a whitespace separated list of nodes                   kill <node>, delete <node>
             ```
             """)
@@ -460,9 +460,9 @@ class OgLhSlackBot:
             if level > logging.INFO:
                 slack_message = textwrap.dedent("""
                     @""" + self.bot_name + """  would like you to know:
-                    
+
                     > """ + message + """
-                    
+
                     """)
             self.slack_client.api_call('chat.postMessage', \
                 channel=self.default_log_channel, text=slack_message, as_user=True)

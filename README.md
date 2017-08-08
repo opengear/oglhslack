@@ -22,7 +22,7 @@ It expects to find the following environment variables:
 The **Lighhouse** Slack bot can be triggered as simple as:
 
 ```python
->>> from oglh_bot import OgLhSlackBot
+>>> from oglhslack import OgLhSlackBot
 >>> slack_bot = OgLhSlackBot()
 >>> slack_bot.listen()
 ```
@@ -32,3 +32,11 @@ Or, straight from the terminal:
 ```bash
 $ python oglh_bot.py
 ```
+
+## Channels conventions
+
+### Administration commands
+
+Commands that make changes in Lighthouse are not allowed in normal channels or in private messages.
+
+In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlh-admin**. This channel is supposed to be locked for not invited members and that only authorized users get those invites.
