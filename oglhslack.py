@@ -58,7 +58,9 @@ class OgLhClient:
         @new_pending is True if there is some new pending node since the bot
             was instantiated, and False otherwise
         """
+
         body = self.lh_client.nodes.list({ 'config:status' : 'Registered' })
+
         name_ids = { node.name: node.id for node in body.nodes \
             if node.approved == 0 }
         new_pending = (set(name_ids) > set(self.pending_name_ids))
@@ -330,7 +332,10 @@ class OgLhSlackBot:
         return response
 
     def _get_enrolled(self, *_):
-        enrolled_nodes = self.lh_client.get_enrolled()
+        try:
+            enrolled_nodes = self.lh_client.get_enrolled()
+        except Exception as e:
+            self._logging('erro buscando nos: '+str(e))
 
         if enrolled_nodes:
             response = self._format_list(enrolled_nodes)
@@ -432,6 +437,7 @@ class OgLhSlackBot:
             output = None
 
             intent, _, scope = command.partition(' ')
+
             for func, intents in self.func_intents.iteritems():
                 if intent in intents:
                     output = func(self._sanitise(scope), username)
@@ -468,11 +474,12 @@ class OgLhSlackBot:
                         action=action, params=','.join(params)))
 
                     output = self._format_response(action, r)
-            else:
-                output = self._show_help()
+            #else:
+            #    output = self._show_help()
 
             if not output:
-                return
+                output = self._show_help()
+                #return
 
             response = response + output
             self._logging('Responding: ' + response)
