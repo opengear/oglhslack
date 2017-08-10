@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import os, signal, textwrap, re, time, multiprocessing, threading
-import logging, logging.handlers
+import logging, logging.handlers, yaml
 
 from oglhclient import LighthouseApiClient
 from slackclient import SlackClient
@@ -45,8 +45,8 @@ class OgLhClient:
         >>> ports = slack_bot.get_ports('mySoughtLabel')
         """
         body = self.lh_client.nodes.list({ 'port:label': label })
-        return [port for node in body['nodes'] for port in node['ports'] \
-            if port['label'].lower() == label]
+        return [port for node in body.nodes for port in node.ports \
+            if port.label.lower() == label]
 
     def get_pending(self):
         """
@@ -59,8 +59,8 @@ class OgLhClient:
             was instantiated, and False otherwise
         """
         body = self.lh_client.nodes.list({ 'config:status' : 'Registered' })
-        name_ids = { node['name']: node['id'] for node in body['nodes'] \
-            if node['approved'] == 0 }
+        name_ids = { node.name: node.id for node in body.nodes \
+            if node.approved == 0 }
         new_pending = (set(name_ids) > set(self.pending_name_ids))
         self.pending_name_ids = name_ids
         return sorted(name_ids, key=lambda k: k.lower()), new_pending
@@ -74,7 +74,7 @@ class OgLhClient:
         @enrolled_node_names is a list of the currently enrolled nodes
         """
         body = self.lh_client.nodes.list({ 'config:status' : 'Enrolled' })
-        return sorted([node['name'] for node in body['nodes']], key=unicode.lower)
+        return sorted([node.name for node in body.nodes], key=unicode.lower)
 
     def get_port_labels(self, node_name):
         """
@@ -89,8 +89,8 @@ class OgLhClient:
             body = self.lh_client.nodes.list({ 'config:name' : node_name })
         else:
             body = self.lh_client.nodes.list()
-            labels = [port['label'] for node in body['nodes'] for port \
-                in node['ports'] if port['mode'] == 'consoleServer']
+            labels = [port.label for node in body.nodes for port \
+                in node.ports if port.mode == 'consoleServer']
         return sorted(labels, key=unicode.lower)
 
     def get_summary(self):
@@ -104,14 +104,14 @@ class OgLhClient:
         @disconnected is the number of disconnected nodes
         """
         body = self.lh_client.stats.nodes.connection_summary.get()
-        for conn in body['connectionSummary']:
-            if conn['status'] == 'connected':
-                connected = int(conn['count'])
-            elif conn['status'] == 'pending':
-                pending = int(conn['count'])
+        for conn in body.connectionSummary:
+            if conn.status == 'connected':
+                connected = int(conn.count)
+            elif conn.status == 'pending':
+                pending = int(conn.count)
                 continue
-            elif conn['status'] == 'disconnected':
-                disconnected = int(conn['count'])
+            elif conn.status == 'disconnected':
+                disconnected = int(conn.count)
         return connected, pending, disconnected
 
     def delete_nodes(self, node_names):
@@ -129,16 +129,16 @@ class OgLhClient:
         body = self.lh_client.nodes.list()
         deleted_names = []
         errors = []
-        for node in body['nodes']:
-            if node['name'] in node_names:
+        for node in body.nodes:
+            if node.name in node_names:
                 try:
-                    result = self.lh_client.nodes.delete(id=node['id'])
-                    if type(result) is dict and 'error' in result \
-                        and len(result['error']) > 0:
-                        raise RuntimeError(result['error'][0]['text'])
-                    deleted_names.append(node['name'])
+                    result = self.lh_client.nodes.delete(id=node.id)
+                    if 'error' in result.__dict__.keys() \
+                        and len(result.error) > 0:
+                        raise RuntimeError(result.error[0].text)
+                    deleted_names.append(node.name)
                 except Exception as e:
-                    errors.append('Error deleting [%s]: %s' % (node['name'], str(e)))
+                    errors.append('Error deleting [%s]: %s' % (node.name, str(e)))
         return deleted_names, errors
 
     def approve_nodes(self, node_names):
@@ -156,25 +156,25 @@ class OgLhClient:
         body = self.lh_client.nodes.list({ 'config:status' : 'Registered' })
         approved_names = []
         errors = []
-        for node in body['nodes']:
-            if node['name'] in node_names:
+        for node in body.nodes:
+            if node.name in node_names:
                 try:
                     approved_node = {
                         'node': {
-                            'name': node['name'],
+                            'name': node.name,
                             'mac_address': '',
                             'description': '',
                             'approved': 1,
-                            'tags': node['tag_list']['tags']
+                            'tags': node.tag_list.tags
                         }
                     }
-                    result = self.lh_client.nodes.update(data=approved_node, id=node['id'])
-                    if type(result) is dict and 'error' in result \
-                        and len(result['error']) > 0:
-                        raise RuntimeError(result['error'][0]['text'])
-                    approved_names.append(node['name'])
+                    result = self.lh_client.nodes.update(data=approved_node, id=node.id)
+                    if 'error' in result.__dict__.keys() \
+                        and len(result.error) > 0:
+                        raise RuntimeError(result.error[0].text)
+                    approved_names.append(node.name)
                 except Exception as e:
-                    errors.append('Error approving [%s]: %s' % (node['name'], str(e)))
+                    errors.append('Error approving [%s]: %s' % (node.name, str(e)))
         return approved_names, errors
 
 class OgLhSlackBot:
@@ -191,6 +191,21 @@ class OgLhSlackBot:
     """
 
     def __init__(self):
+
+        # create logger with 'spam_application'
+        self.logger = logging.getLogger('SlackBotLogger')
+        self.logger.setLevel(logging.INFO)
+        fh = logging.FileHandler('oglh_slack_bot.log')
+        fh.setLevel(logging.INFO)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.ERROR)
+        formatter = logging.Formatter('%(asctime)s - [%(levelname)s] (%(threadName)-10s) %(message)s')
+        fh.setFormatter(formatter)
+        ch.setFormatter(formatter)
+        self.logger.addHandler(fh)
+        self.logger.addHandler(ch)
+
+
         self.bot_name = os.environ.get('SLACK_BOT_NAME')
         self.default_channel = os.environ.get('SLACK_BOT_DEFAULT_CHANNEL')
         self.default_log_channel = os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
@@ -239,7 +254,7 @@ class OgLhSlackBot:
         for port in ports:
             if not 'proxied_ssh_url' in port:
                 continue
-            ssh_url = re.sub(r'ssh://lhbot', 'ssh://' + username, port['proxied_ssh_url'])
+            ssh_url = re.sub(r'ssh://lhbot', 'ssh://' + username, port.proxied_ssh_url)
             ssh_urls.append('<' + ssh_url + '>')
         return ssh_urls
 
@@ -249,7 +264,7 @@ class OgLhSlackBot:
             if not 'web_terminal_url' in port:
                 continue
             web_url = self.lh_client.url + '/'
-            web_url += port['web_terminal_url']
+            web_url += port.web_terminal_url
             web_urls.append('<' + web_url + '>')
         return web_urls
 
@@ -393,25 +408,68 @@ class OgLhSlackBot:
                 sanitised.append(s)
         return ' '.join(sanitised)
 
+    def _simple_plural(self, word):
+        if word[-1] == 'y':
+            return word[:-1] + 'ies'
+        elif word[-1] == 's':
+            return word
+        return word + 's'
+
+    def _format_response(self, action, resp):
+
+        return yaml.dump(resp, default_flow_style=False)
+
     def _command(self, command, channel, user_id):
         try:
             self.semaphores.acquire()
 
             response = ''
             username = self._get_slack_username(user_id)
-
             self._logging('Got command: `' + command + '`, from: ' + username + '')
-
             if user_id:
                 response = '<@' + user_id + '|' + username + '> '
 
-            output = self._show_help()
-            intent, _, scope = command.partition(' ')
+            output = None
 
+            intent, _, scope = command.partition(' ')
             for func, intents in self.func_intents.iteritems():
                 if intent in intents:
                     output = func(self._sanitise(scope), username)
                     break
+
+            if not output:
+                action, _, scope = re.sub('\s+', ' ', command).partition(' ')
+                action = action.lower()
+                scope = scope.strip()
+
+                if not action in ['get', 'find', 'list'] and channel != 'oglhadmin':
+                    output = "Actions other than `get`, `find` and `list` must take place in `oglhadmin` channel."
+                else:
+                    params=[]
+                    chain = []
+                    main_parts = []
+
+                    if 'from' in scope:
+                        objects = scope.split('from')
+                        main_parts = objects[0].strip().split(' ')
+                        parent_parts = objects[1].strip().split(' ')
+                        chain.append(self._simple_plural(parent_parts[0]))
+                        if len(parent_parts) == 2:
+                            params.append('parent_id=' + parent_parts[1])
+                    else:
+                        main_parts = scope.strip().split(' ')
+
+                    chain.append(self._simple_plural(main_parts[0]))
+                    if len(main_parts) == 2:
+                        params.append(main_parts[1])
+
+                    call_str = 'self.lh_client.lh_client.{chain}.{action}({params})'
+                    r = eval(str.format(call_str, chain='.'.join(chain), \
+                        action=action, params=','.join(params)))
+
+                    output = self._format_response(action, r)
+            else:
+                output = self._show_help()
 
             if not output:
                 return
@@ -468,13 +526,13 @@ class OgLhSlackBot:
                 channel=self.default_log_channel, text=slack_message, as_user=True)
 
         if level == logging.CRITICAL:
-            logging.critical(message)
+            self.logger.critical(message)
         elif level == logging.ERROR:
-            logging.error(message)
+            self.logger.error(message)
         elif level == logging.WARNING:
-            logging.warning(message)
+            self.logger.warning(message)
         else:
-            logging.info(message)
+            self.logger.info(message)
 
     def listen(self):
         try:
@@ -499,7 +557,5 @@ class OgLhSlackBot:
             self._dying_message(str(error))
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, filename='oglh_slack_bot.log',
-        format='%(asctime)s - [%(levelname)s] (%(threadName)-10s) %(message)s')
     slack_bot = OgLhSlackBot()
     slack_bot.listen()
