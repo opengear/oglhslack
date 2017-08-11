@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import os, signal, textwrap, re, time, multiprocessing, threading
-import logging, logging.handlers, yaml
+import logging, logging.handlers, yaml, types
 
 from oglhclient import LighthouseApiClient
 from slackclient import SlackClient
@@ -207,11 +207,17 @@ class OgLhSlackBot:
         self.logger.addHandler(fh)
         self.logger.addHandler(ch)
 
-
         self.bot_name = os.environ.get('SLACK_BOT_NAME')
         self.default_channel = os.environ.get('SLACK_BOT_DEFAULT_CHANNEL')
-        self.default_log_channel = os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
         self.slack_token = os.environ.get('SLACK_BOT_TOKEN')
+        if not (self.bot_name and self.default_channel and self.slack_token):
+            raise RuntimeError("""
+            Some of the required environment variables are not set, please refer
+            to the documentation: https://github.com/thiagolcmelo/oglhslack
+            """)
+
+        self.default_log_channel = os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
+
         self.slack_client = SlackClient(self.slack_token)
 
         self.poll_max_workers = multiprocessing.cpu_count()
@@ -383,8 +389,22 @@ class OgLhSlackBot:
                 return username
         return 'nobody'
 
-    def _format_list(self, raw_list):
-        return '\n' + '\n'.join(['> %d. %s' % (i + 1, e) for i, e in enumerate(raw_list)])
+    def _format_list(self, raw_list, list_title=''):
+        if len(raw_list) <= 10:
+            return '\n' + '\n'.join(['> %d. %s' % (i + 1, e) for i, e in enumerate(raw_list)])
+        max_len = max([len(l) for l in raw_list])
+        cols = int (120 / max_len)
+        formated_list = ''
+        for i, word in enumerate(raw_list):
+            if i % cols == 0:
+                formated_list += '\n'
+            formated_list += ('{:3d}. {:' + str(max_len) + 's} ').format((i+1), word)
+        return textwrap.dedent((list_title + ':' if list_title else '') + """
+            ```
+            """ + formated_list + """
+            ```
+            """)
+
 
     def _show_help(self):
         return textwrap.dedent("""
@@ -421,8 +441,24 @@ class OgLhSlackBot:
         return word + 's'
 
     def _format_response(self, action, resp):
+        try:
+            if action == 'list':
+                object_name = [k for k in resp.__dict__.keys() if k != 'meta'][0]
+                names = [o.__dict__['name'] for o in resp.__dict__[object_name]]
+                return self._format_list(sorted(names), object_name)
+            elif action == 'find' or 'get':
+                return self._dump_obj(resp)
+        except:
+            return yaml.dump(resp, default_flow_style=False)
 
-        return yaml.dump(resp, default_flow_style=False)
+    def _dump_obj(self, obj, level=0):
+        response = ''
+        for key, value in obj.__dict__.items():
+            if not isinstance(value, types.InstanceType):
+                 response += " " * level + "%s -> %s" % (key, value)
+            else:
+                response += '\n' + self._dump_obj(value, level + 2)
+        return response
 
     def _command(self, command, channel, user_id):
         try:
@@ -461,15 +497,17 @@ class OgLhSlackBot:
                         parent_parts = objects[1].strip().split(' ')
                         chain.append(self._simple_plural(parent_parts[0]))
                         if len(parent_parts) == 2:
-                            params.append('parent_id=' + parent_parts[1])
+                            params.append('parent_id="%s"' % parent_parts[1])
                     else:
                         main_parts = scope.strip().split(' ')
 
                     chain.append(self._simple_plural(main_parts[0]))
                     if len(main_parts) == 2:
-                        params.append(main_parts[1])
+                        params.append('id="%s"' % main_parts[1])
 
                     call_str = 'self.lh_client.lh_client.{chain}.{action}({params})'
+                    print str.format(call_str, chain='.'.join(chain), \
+                        action=action, params=','.join(params))
                     r = eval(str.format(call_str, chain='.'.join(chain), \
                         action=action, params=','.join(params)))
 
