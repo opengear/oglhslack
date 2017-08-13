@@ -16,11 +16,6 @@ def retry(ExceptionToCheck, tries=4, delay=3, backoff=2, logger=None):
                 try:
                     return f(*args, **kwargs)
                 except ExceptionToCheck, e:
-                    msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
-                    if logger:
-                        logger.warning(msg)
-                    else:
-                        print msg
                     time.sleep(mdelay)
                     mtries -= 1
                     mdelay *= backoff
@@ -236,13 +231,14 @@ class OgLhSlackBot:
             self._get_web : { 'lighthouse', 'lhweb', 'webui', 'gui' }, \
             self._get_enrolled : { 'nodes', 'enrolled' }, \
             self._check_pending : { 'pending' }, \
-            self._approve_nodes: { 'ok', 'okay', 'approve' }, \
-            self._delete_nodes: { 'nuke', 'kill', 'delete' }, \
+            self._approve_nodes: { 'ok', 'okay', 'approve', 'admin' }, \
+            self._delete_nodes: { 'nuke', 'kill', 'delete', 'admin' }, \
         }
 
         if not self.slack_client.rtm_connect():
             raise RuntimeError('Slack connection failed')
         self.bot_at = '<@' + self._get_bot_id() + '>'
+        self.admin_channel = 'oglhadmin'
 
     # Slack Bot methods
     ## Methods for dealing with Slack Bot
@@ -406,7 +402,7 @@ class OgLhSlackBot:
             """)
 
 
-    def _show_help(self):
+    def _show_help(self, *_):
         return textwrap.dedent("""
             ```
             Commands                                 Description                                                            Alias
@@ -418,8 +414,26 @@ class OgLhSlackBot:
             @""" + self.bot_name + """ gui           Gets a link to the Lighthouse web UI                                       lighthouse, lhweb, webui
             @""" + self.bot_name + """ nodes         Shows enrolled nodes                                                       enrolled
             @""" + self.bot_name + """ pending       Shows nodes awaiting approval
-            @""" + self.bot_name + """ ok <node>     Approves a node or a whitespace separated list of nodes                    okay <node>, approve <node>
-            @""" + self.bot_name + """ nuke <node>   Unenrolls a node or a whitespace separated list of nodes                   kill <node>, delete <node>
+            @""" + self.bot_name + """ ok <node>     Approves a node or a whitespace separated list of nodes (admin only)       okay <node>, approve <node>
+            @""" + self.bot_name + """ nuke <node>   Unenrolls a node or a whitespace separated list of nodes (admin only)      kill <node>, delete <node>
+            ```
+
+            It is also possible to query objects like:
+            ```
+            @""" + self.bot_name + """ list nodes
+            @""" + self.bot_name + """ find node my-node-id
+            @""" + self.bot_name + """ list tags from node my-node-id
+            ```
+
+            Generically:
+            ```
+            @""" + self.bot_name + """ get <static-object>
+            @""" + self.bot_name + """ list <objects>
+            @""" + self.bot_name + """ find <object> <object-id>
+
+            @""" + self.bot_name + """ get <static-object> from <parent-object> <parent-object-id>
+            @""" + self.bot_name + """ list <objects> from <parent-object> <parent-object-id>
+            @""" + self.bot_name + """ find <object> <object-id> from <parent-object> <parent-object-id>
             ```
             """)
 
@@ -447,80 +461,89 @@ class OgLhSlackBot:
                 names = [o.__dict__['name'] for o in resp.__dict__[object_name]]
                 return self._format_list(sorted(names), object_name)
             elif action == 'find' or 'get':
-                return self._dump_obj(resp)
+                return textwrap.dedent("""
+                    ```
+                    """ + self._dump_obj(resp) + """
+                    ```""")
         except:
-            return yaml.dump(resp, default_flow_style=False)
+            return str(resp)
 
     def _dump_obj(self, obj, level=0):
         response = ''
         for key, value in obj.__dict__.items():
-            if not isinstance(value, types.InstanceType):
-                 response += " " * level + "%s -> %s" % (key, value)
-            else:
-                response += '\n' + self._dump_obj(value, level + 2)
+            try:
+                if isinstance(value, list):
+                    response += ('\n%s:' % (" " * level + key)) + self._dump_obj(value[0], level + 2)
+                else:
+                    response += ('\n%s:' % (" " * level + key)) + self._dump_obj(value, level + 2)
+            except Exception as e:
+                response += '\n' + " " * level + "%s -> %s" % (key, value)
         return response
+
+    def _query_tool(self, command, channel):
+        try:
+            action, _, scope = re.sub('\s+', ' ', command).partition(' ')
+            action = action.lower()
+            scope = scope.strip()
+            if action in ['update', 'set', 'delete', 'create'] and channel != self.admin_channel:
+                return "Actions other than `get`, `find` and `list` " + \
+                    "must take place at `%s` channel." % self.admin_channel, False
+            else:
+                params=[]
+                chain = []
+                main_parts = []
+
+                if 'from' in scope:
+                    objects = scope.split('from')
+                    main_parts = objects[0].strip().split(' ')
+                    parent_parts = objects[1].strip().split(' ')
+                    chain.append(self._simple_plural(parent_parts[0]))
+                    if len(parent_parts) == 2:
+                        params.append('parent_id="%s"' % parent_parts[1])
+                else:
+                    main_parts = scope.strip().split(' ')
+
+                chain.append(self._simple_plural(main_parts[0]) if action != 'get' else main_parts[0])
+                if len(main_parts) == 2:
+                    params.append('id="%s"' % main_parts[1])
+
+                call_str = 'self.lh_client.lh_client.{chain}.{action}({params})'
+                r = eval(str.format(call_str, chain='.'.join(chain), \
+                    action=action, params=','.join(params)))
+                return self._format_response(action, r), False
+        except:
+            return self._show_help(), True
+
+    def _built_in_functions(self, command, channel, username):
+        intent, _, scope = command.partition(' ')
+        for func, intents in self.func_intents.iteritems():
+            if intent in intents and (channel == self.admin_channel or not 'admin' in intents):
+                return func(self._sanitise(scope), username)
+            elif intent in intents and channel != self.admin_channel and 'admin' in intents:
+                return "This operation must take place at `%s` channel." % self.admin_channel
+        return None
 
     def _command(self, command, channel, user_id):
         try:
             self.semaphores.acquire()
 
             response = ''
+            is_help = False
+
             username = self._get_slack_username(user_id)
             self._logging('Got command: `' + command + '`, from: ' + username + '')
             if user_id:
                 response = '<@' + user_id + '|' + username + '> '
 
-            output = None
+            # check whether some of the built in funtions were called
+            output = self._built_in_functions(command, channel, username)
 
-            intent, _, scope = command.partition(' ')
-
-            for func, intents in self.func_intents.iteritems():
-                if intent in intents:
-                    output = func(self._sanitise(scope), username)
-                    break
-
+            # try the more complex query tool
             if not output:
-                action, _, scope = re.sub('\s+', ' ', command).partition(' ')
-                action = action.lower()
-                scope = scope.strip()
+                output, is_help = self._query_tool(command, channel)
 
-                if not action in ['get', 'find', 'list'] and channel != 'oglhadmin':
-                    output = "Actions other than `get`, `find` and `list` must take place in `oglhadmin` channel."
-                else:
-                    params=[]
-                    chain = []
-                    main_parts = []
-
-                    if 'from' in scope:
-                        objects = scope.split('from')
-                        main_parts = objects[0].strip().split(' ')
-                        parent_parts = objects[1].strip().split(' ')
-                        chain.append(self._simple_plural(parent_parts[0]))
-                        if len(parent_parts) == 2:
-                            params.append('parent_id="%s"' % parent_parts[1])
-                    else:
-                        main_parts = scope.strip().split(' ')
-
-                    chain.append(self._simple_plural(main_parts[0]))
-                    if len(main_parts) == 2:
-                        params.append('id="%s"' % main_parts[1])
-
-                    call_str = 'self.lh_client.lh_client.{chain}.{action}({params})'
-                    print str.format(call_str, chain='.'.join(chain), \
-                        action=action, params=','.join(params))
-                    r = eval(str.format(call_str, chain='.'.join(chain), \
-                        action=action, params=','.join(params)))
-
-                    output = self._format_response(action, r)
-            #else:
-            #    output = self._show_help()
-
-            if not output:
-                output = self._show_help()
-                #return
-
-            response = response + output
-            self._logging('Responding: ' + response)
+            response += output
+            self._logging('Responding: ' + (response if not is_help else 'help message'))
 
             try:
                 self.slack_client.api_call('chat.postMessage', channel=channel, \
@@ -577,7 +600,7 @@ class OgLhSlackBot:
         elif level == logging.WARNING:
             self.logger.warning(message)
         else:
-            self.logger.info(message)
+            self.logger.info(message[0:100] + ('...' if len(message) > 100 else ''))
 
     def listen(self):
         try:
