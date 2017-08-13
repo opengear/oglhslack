@@ -30,7 +30,7 @@ The **Lighhouse** Slack bot can be triggered as simple as:
 Or, straight from the terminal:
 
 ```bash
-$ python oglh_bot.py
+$ python oglhslack.py
 ```
 
 ## Channels conventions
@@ -39,4 +39,4 @@ $ python oglh_bot.py
 
 Commands that make changes in Lighthouse are not allowed in normal channels or in private messages.
 
-In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlh-admin**. This channel is supposed to be locked for not invited members and that only authorized users get those invites.
+In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlhadmin**. This channel is supposed to be locked for not invited members and that only authorized users get those invites.

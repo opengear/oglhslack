@@ -237,7 +237,8 @@ class OgLhSlackBot:
 
         if not self.slack_client.rtm_connect():
             raise RuntimeError('Slack connection failed')
-        self.bot_at = '<@' + self._get_bot_id() + '>'
+        self.bod_id = self._get_bot_id()
+        self.bot_at = '<@' + self.bod_id + '>'
         self.admin_channel = 'oglhadmin'
 
     # Slack Bot methods
@@ -252,6 +253,16 @@ class OgLhSlackBot:
             if member['name'] == self.bot_name:
                 return member['id']
         raise RuntimeError('User ' + self.bot_name + ' not found')
+
+    def _get_channel_name(self, channel_id):
+        try:
+            channel_list = self.slack_client.api_call('channels.list')
+        except:
+            raise RuntimeError('Slack channels list failed')
+        for c in channel_list['channels']:
+            if c['id'] == channel_id:
+                return c['name']
+        return None
 
     def _ports_list_ssh(self, ports, label, username):
         ssh_urls = []
@@ -403,38 +414,92 @@ class OgLhSlackBot:
 
 
     def _show_help(self, *_):
+        build_in_commands = [
+            {
+                'command': 'devices',
+                'description': 'Shows all the manageable devices available',
+                'alias': 'ports, labels'
+            },
+            {
+                'command': 'ssh <device>',
+                'description': 'Gets a SSH link for manageable Device',
+                'alias': 'sshlink <device>'
+            },
+            {
+                'command': 'web <device>',
+                'description': 'Gets a web terminal link for manageable device',
+                'alias': 'webterm <device>, weblink <device>'
+            },
+            {
+                'command': 'con <device>',
+                'description': 'Gets both a SSH link and a web terminal link for manageable device',
+                'alias': ''
+            },
+            {
+                'command': 'sup',
+                'description': 'Shows nodes enrollment summary',
+                'alias': 'console <device>, gimme <device>'
+            },
+            {
+                'command': 'gui',
+                'description': 'Gets a link to the Lighthouse web UI',
+                'alias': 'lighthouse, lhweb, webui'
+            },
+            {
+                'command': 'nodes',
+                'description': 'Shows enrolled nodes',
+                'alias': 'summary, stats, status, howzit'
+            },
+            {
+                'command': 'pending',
+                'description': 'Shows nodes awaiting approval',
+                'alias': 'enrolled'
+            },
+            {
+                'command': 'ok <node>',
+                'description': 'Approves a node or a whitespace separated list of nodes (admin only)',
+                'alias': 'okay <node>, approve <node>'
+            },
+            {
+                'command': 'nuke <node>',
+                'description': 'Unenrolls a node or a whitespace separated list of nodes (admin only)',
+                'alias': 'kill <node>, delete <node>'
+            }
+        ]
+
+        max_command = max([len(c['command']) for c in build_in_commands])
+        max_desc = max([len(c['description']) for c in build_in_commands])
+        max_alias = max([len(c['alias']) for c in build_in_commands])
+        head_str = '\n%s {:%ds} | {:%ds} | {:%ds}' % (' ' * (len(self.bot_name) + 1), max_command, max_desc, max_alias)
+        line_str = '\n@%s {:%ds} | {:%ds} | {:%ds}' % (self.bot_name, max_command, max_desc, max_alias)
+        help_text = head_str.format('Commands', 'Description', 'Alias')
+
+        for c in build_in_commands:
+            help_text += line_str.format(c['command'], c['description'], c['alias'])
+
         return textwrap.dedent("""
-            ```
-            Commands                                 Description                                                            Alias
-            @""" + self.bot_name + """ devices       Shows all the manageable devices available                                 ports, labels
-            @""" + self.bot_name + """ ssh <device>  Gets a SSH link for manageable Device                                      sshlink <device>
-            @""" + self.bot_name + """ web <device>  Gets a web terminal link for manageable device                             webterm <device>, weblink <device>
-            @""" + self.bot_name + """ con <device>  Gets both a SSH link and a web terminal link for manageable device         console <device>, gimme <device>
-            @""" + self.bot_name + """ sup           Shows nodes enrollment summary                                             summary, stats, status, howzit
-            @""" + self.bot_name + """ gui           Gets a link to the Lighthouse web UI                                       lighthouse, lhweb, webui
-            @""" + self.bot_name + """ nodes         Shows enrolled nodes                                                       enrolled
-            @""" + self.bot_name + """ pending       Shows nodes awaiting approval
-            @""" + self.bot_name + """ ok <node>     Approves a node or a whitespace separated list of nodes (admin only)       okay <node>, approve <node>
-            @""" + self.bot_name + """ nuke <node>   Unenrolls a node or a whitespace separated list of nodes (admin only)      kill <node>, delete <node>
-            ```
+```""" + help_text + """
+```
 
-            It is also possible to query objects like:
-            ```
-            @""" + self.bot_name + """ list nodes
-            @""" + self.bot_name + """ find node my-node-id
-            @""" + self.bot_name + """ list tags from node my-node-id
-            ```
+It is also possible to query objects like:
+```
+@""" + self.bot_name + """ list nodes
+@""" + self.bot_name + """ find node my-node-id
+@""" + self.bot_name + """ list tags from node my-node-id
+```
 
-            Generically:
-            ```
-            @""" + self.bot_name + """ get <static-object>
-            @""" + self.bot_name + """ list <objects>
-            @""" + self.bot_name + """ find <object> <object-id>
+Generically:
+```
+@""" + self.bot_name + """ get <static-object>
+@""" + self.bot_name + """ list <objects>
+@""" + self.bot_name + """ find <object> <object-id>
 
-            @""" + self.bot_name + """ get <static-object> from <parent-object> <parent-object-id>
-            @""" + self.bot_name + """ list <objects> from <parent-object> <parent-object-id>
-            @""" + self.bot_name + """ find <object> <object-id> from <parent-object> <parent-object-id>
-            ```
+@""" + self.bot_name + """ get <static-object> from <parent-object> <parent-object-id>
+@""" + self.bot_name + """ list <objects> from <parent-object> <parent-object-id>
+@""" + self.bot_name + """ find <object> <object-id> from <parent-object> <parent-object-id>
+```
+
+For a complete reference, please refer to https://github.com/thiagolcmelo/oglhslack
             """)
 
     def _sanitise(self, line):
@@ -458,7 +523,7 @@ class OgLhSlackBot:
         try:
             if action == 'list':
                 object_name = [k for k in resp.__dict__.keys() if k != 'meta'][0]
-                names = [o.__dict__['name'] for o in resp.__dict__[object_name]]
+                names = [o.__dict__['name'] + ' (id: ' + o.__dict__['id'] + ')' for o in resp.__dict__[object_name]]
                 return self._format_list(sorted(names), object_name)
             elif action == 'find' or 'get':
                 return textwrap.dedent("""
@@ -526,21 +591,22 @@ class OgLhSlackBot:
     def _command(self, command, channel, user_id):
         try:
             self.semaphores.acquire()
-
             response = ''
             is_help = False
 
             username = self._get_slack_username(user_id)
+            channel_name = self._get_channel_name(channel)
+
             self._logging('Got command: `' + command + '`, from: ' + username + '')
             if user_id:
                 response = '<@' + user_id + '|' + username + '> '
 
             # check whether some of the built in funtions were called
-            output = self._built_in_functions(command, channel, username)
+            output = self._built_in_functions(command, channel_name, username)
 
             # try the more complex query tool
             if not output:
-                output, is_help = self._query_tool(command, channel)
+                output, is_help = self._query_tool(command, channel_name)
 
             response += output
             self._logging('Responding: ' + (response if not is_help else 'help message'))
@@ -560,6 +626,8 @@ class OgLhSlackBot:
             for output in output_list:
                 if output and 'text' in output and self.bot_at in output['text']:
                     return output['text'].split(self.bot_at)[1].strip().lower(), output['channel'], output['user']
+                elif output and 'text' in output and 'channel' in output and output['channel'][0] == 'D' and output['user'] != self.bod_id:
+                    return output['text'].strip().lower(), output['channel'], output['user']
         return None, None, None
 
     def _dying_message(self, message):
@@ -603,6 +671,9 @@ class OgLhSlackBot:
             self.logger.info(message[0:100] + ('...' if len(message) > 100 else ''))
 
     def listen(self):
+        """
+        It keeps listening to slack messages until the process is manually killed.
+        """
         try:
             self._logging('Hi there! I am here to help!', force_slack=True)
             while True:
