@@ -1,34 +1,17 @@
 #!/usr/bin/env python
 
 import os, signal, textwrap, re, time, multiprocessing, threading
-import logging, logging.handlers, yaml, types
+import logging, logging.handlers, yaml
 
 from oglhclient import LighthouseApiClient
 from slackclient import SlackClient
-from functools import wraps
 
-def retry(ExceptionToCheck, tries=4, delay=3, backoff=2, logger=None):
-    def deco_retry(f):
-        @wraps(f)
-        def f_retry(*args, **kwargs):
-            mtries, mdelay = tries, delay
-            while mtries > 1:
-                try:
-                    return f(*args, **kwargs)
-                except ExceptionToCheck, e:
-                    time.sleep(mdelay)
-                    mtries -= 1
-                    mdelay *= backoff
-            return f(*args, **kwargs)
-        return f_retry
-    return deco_retry
-
-class OgLhClient:
+class OgLhClientHelper:
 
     def __init__(self):
         self.lh_api = LighthouseApiClient()
         self.url = self.lh_api.url
-        self.lh_client = self.lh_api.get_client()
+        self.client = self.lh_api.get_client()
         self.pending_name_ids = {}
         _, _ = self.get_pending()
 
@@ -39,7 +22,7 @@ class OgLhClient:
 
         >>> ports = slack_bot.get_ports('mySoughtLabel')
         """
-        body = self.lh_client.nodes.list({ 'port:label': label })
+        body = self.client.nodes.list({ 'port:label': label })
         return [port for node in body.nodes for port in node.ports \
             if port.label.lower() == label]
 
@@ -54,7 +37,7 @@ class OgLhClient:
             was instantiated, and False otherwise
         """
 
-        body = self.lh_client.nodes.list({ 'config:status' : 'Registered' })
+        body = self.client.nodes.list({ 'config:status' : 'Registered' })
 
         name_ids = { node.name: node.id for node in body.nodes \
             if node.approved == 0 }
@@ -70,7 +53,7 @@ class OgLhClient:
 
         @enrolled_node_names is a list of the currently enrolled nodes
         """
-        body = self.lh_client.nodes.list({ 'config:status' : 'Enrolled' })
+        body = self.client.nodes.list({ 'config:status' : 'Enrolled' })
         return sorted([node.name for node in body.nodes], key=unicode.lower)
 
     def get_port_labels(self, node_name):
@@ -83,9 +66,9 @@ class OgLhClient:
             its name
         """
         if node_name:
-            body = self.lh_client.nodes.list({ 'config:name' : node_name })
+            body = self.client.nodes.list({ 'config:name' : node_name })
         else:
-            body = self.lh_client.nodes.list()
+            body = self.client.nodes.list()
             labels = [port.label for node in body.nodes for port \
                 in node.ports if port.mode == 'consoleServer']
         return sorted(labels, key=unicode.lower)
@@ -100,7 +83,7 @@ class OgLhClient:
         @pending is the number of pending nodes
         @disconnected is the number of disconnected nodes
         """
-        body = self.lh_client.stats.nodes.connection_summary.get()
+        body = self.client.stats.nodes.connection_summary.get()
         for conn in body.connectionSummary:
             if conn.status == 'connected':
                 connected = int(conn.count)
@@ -123,13 +106,13 @@ class OgLhClient:
 
         @deleted_list is a subset of :node_names with those which were deleted
         """
-        body = self.lh_client.nodes.list()
+        body = self.client.nodes.list()
         deleted_names = []
         errors = []
         for node in body.nodes:
             if node.name in node_names:
                 try:
-                    result = self.lh_client.nodes.delete(id=node.id)
+                    result = self.client.nodes.delete(id=node.id)
                     if 'error' in result.__dict__.keys() \
                         and len(result.error) > 0:
                         raise RuntimeError(result.error[0].text)
@@ -150,7 +133,7 @@ class OgLhClient:
 
         @approved_list is a subset of :node_names with those which were approved
         """
-        body = self.lh_client.nodes.list({ 'config:status' : 'Registered' })
+        body = self.client.nodes.list({ 'config:status' : 'Registered' })
         approved_names = []
         errors = []
         for node in body.nodes:
@@ -165,7 +148,7 @@ class OgLhClient:
                             'tags': node.tag_list.tags
                         }
                     }
-                    result = self.lh_client.nodes.update(data=approved_node, id=node.id)
+                    result = self.client.nodes.update(data=approved_node, id=node.id)
                     if 'error' in result.__dict__.keys() \
                         and len(result.error) > 0:
                         raise RuntimeError(result.error[0].text)
@@ -176,23 +159,20 @@ class OgLhClient:
 
 class OgLhSlackBot:
     """
-    Provides a minimum use of the LighthouseApi with methods that return
-    parsed responses rather than the actual JSON responses so that
+    A Bot for dealing with the Opengear Lighthouse API straight from Slack
+    terminal.
 
-    Although the list() method keeps listening for request from the Slack and
-    makes possible to access all other features throught there, most of them
-    can be called directly from:
-
+    Usage:
+    
     >>> from oglh_bot import OgLhSlackBot
     >>> slack_bot = OgLhSlackBot()
+    >>> slack_bot.listen()
     """
 
     def __init__(self):
-
-        # create logger with 'spam_application'
         self.logger = logging.getLogger('SlackBotLogger')
         self.logger.setLevel(logging.INFO)
-        fh = logging.FileHandler('oglh_slack_bot.log')
+        fh = logging.FileHandler('oglhslack_bot.log')
         fh.setLevel(logging.INFO)
         ch = logging.StreamHandler()
         ch.setLevel(logging.ERROR)
@@ -205,6 +185,7 @@ class OgLhSlackBot:
         self.bot_name = os.environ.get('SLACK_BOT_NAME')
         self.default_channel = os.environ.get('SLACK_BOT_DEFAULT_CHANNEL')
         self.slack_token = os.environ.get('SLACK_BOT_TOKEN')
+        
         if not (self.bot_name and self.default_channel and self.slack_token):
             raise RuntimeError("""
             Some of the required environment variables are not set, please refer
@@ -212,14 +193,10 @@ class OgLhSlackBot:
             """)
 
         self.default_log_channel = os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
-
         self.slack_client = SlackClient(self.slack_token)
-
         self.poll_max_workers = multiprocessing.cpu_count()
         self.semaphores = threading.BoundedSemaphore(value=self.poll_max_workers)
-
-        self.lh_client = OgLhClient()
-
+        self.client_helper = OgLhClientHelper()
         self.poll_interval = 1
 
         self.func_intents = { \
@@ -278,20 +255,20 @@ class OgLhSlackBot:
         for port in ports:
             if not 'web_terminal_url' in port:
                 continue
-            web_url = self.lh_client.url + '/'
+            web_url = self.client_helper.url + '/'
             web_url += port.web_terminal_url
             web_urls.append('<' + web_url + '>')
         return web_urls
 
     def _get_port_ssh(self, label, username):
-        ports = self.lh_client.get_ports(label)
+        ports = self.client_helper.get_ports(label)
         urls = self._ports_list_ssh(ports, label, username)
         if not urls:
             return ':x: Problem to create ssh link'
         return '\n'.join(urls)
 
     def _get_port_web(self, label, *_):
-        ports = self.lh_client.get_ports(label)
+        ports = self.client_helper.get_ports(label)
         urls = self._ports_list_web(ports, label)
 
         if not urls:
@@ -299,7 +276,7 @@ class OgLhSlackBot:
         return '\n'.join(urls)
 
     def _get_port(self, label, username):
-        ports = self.lh_client.get_ports(label)
+        ports = self.client_helper.get_ports(label)
         ssh_urls = self._ports_list_ssh(ports, label, username)
         web_urls = self._ports_list_web(ports, label)
 
@@ -310,7 +287,7 @@ class OgLhSlackBot:
 
     def _approve_nodes(self, str_names, *_):
         names = str_names.split(' ')
-        approved_names, errors = self.lh_client.approve_nodes(names)
+        approved_names, errors = self.client_helper.approve_nodes(names)
         for e in errors:
             self._logging(e, level=logging.ERROR)
         response = []
@@ -324,7 +301,7 @@ class OgLhSlackBot:
 
     def _delete_nodes(self, str_names, *_):
         names = str_names.split(' ')
-        deleted_names, errors = self.lh_client.delete_nodes(names)
+        deleted_names, errors = self.client_helper.delete_nodes(names)
         for e in errors:
             self._logging(e, level=logging.ERROR)
         response = []
@@ -337,7 +314,7 @@ class OgLhSlackBot:
         return self._format_list(response)
 
     def _get_port_labels(self, node_name, *_):
-        labels = self.lh_client.get_port_labels(node_name)
+        labels = self.client_helper.get_port_labels(node_name)
         if labels:
             response = self._format_list(labels)
         else:
@@ -346,7 +323,7 @@ class OgLhSlackBot:
 
     def _get_enrolled(self, *_):
         try:
-            enrolled_nodes = self.lh_client.get_enrolled()
+            enrolled_nodes = self.client_helper.get_enrolled()
         except Exception as e:
             self._logging('erro buscando nos: '+str(e))
 
@@ -357,7 +334,7 @@ class OgLhSlackBot:
         return response
 
     def _check_pending(self, new_only, *_):
-        pending_nodes, new_pending = self.lh_client.get_pending()
+        pending_nodes, new_pending = self.client_helper.get_pending()
 
         if not new_pending and new_only:
             return None
@@ -370,7 +347,7 @@ class OgLhSlackBot:
         return response
 
     def _get_node_summary(self, *_):
-        connected, pending, disconnected = self.lh_client.get_summary()
+        connected, pending, disconnected = self.client_helper.get_summary()
 
         if connected == None:
             return None
@@ -383,7 +360,7 @@ class OgLhSlackBot:
         return response
 
     def _get_web(self, *_):
-        return '<' + self.lh_client.url + '>'
+        return '<' + self.client_helper.url + '>'
 
     def _get_slack_username(self, user_id):
         if user_id:
@@ -411,7 +388,6 @@ class OgLhSlackBot:
             """ + formated_list + """
             ```
             """)
-
 
     def _show_help(self, *_):
         build_in_commands = [
@@ -512,7 +488,9 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
                 sanitised.append(s)
         return ' '.join(sanitised)
 
-    def _simple_plural(self, word):
+    def _dummy_plural(self, word):
+        if word == 'system':
+            return word
         if word[-1] == 'y':
             return word[:-1] + 'ies'
         elif word[-1] == 's':
@@ -521,9 +499,31 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
 
     def _format_response(self, action, resp):
         try:
+            if 'error' in resp.__dict__.keys() and resp.error[0].text == 'Permission denied':
+                if action == 'find':
+                    return 'Object does not exist or @%s is not allowed to fetch it.' % self.bot_name
+                return '@%s is not allowed execute such an action.' % self.bot_name
+
             if action == 'list':
                 object_name = [k for k in resp.__dict__.keys() if k != 'meta'][0]
-                names = [o.__dict__['name'] + ' (id: ' + o.__dict__['id'] + ')' for o in resp.__dict__[object_name]]
+                object_label = ''
+                
+                if 'name' in resp.__dict__[object_name][0].__dict__:
+                    object_label = 'name'
+                if 'label' in resp.__dict__[object_name][0].__dict__:
+                    object_label = 'label'
+
+                if object_label == '':
+                    return textwrap.dedent("""
+                        ```
+                        """ + self._dump_obj(resp) + """
+                        ```""")
+
+                try:
+                    names = [o.__dict__[object_label] + ' (id: ' + o.__dict__['id'] + ')' for o in resp.__dict__[object_name]]
+                except:
+                    names = [o.__dict__[object_label] for o in resp.__dict__[object_name]]
+                    
                 return self._format_list(sorted(names), object_name)
             elif action == 'find' or 'get':
                 return textwrap.dedent("""
@@ -562,17 +562,17 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
                     objects = scope.split('from')
                     main_parts = objects[0].strip().split(' ')
                     parent_parts = objects[1].strip().split(' ')
-                    chain.append(self._simple_plural(parent_parts[0]))
+                    chain.append(self._dummy_plural(parent_parts[0]))
                     if len(parent_parts) == 2:
                         params.append('parent_id="%s"' % parent_parts[1])
                 else:
                     main_parts = scope.strip().split(' ')
 
-                chain.append(self._simple_plural(main_parts[0]) if action != 'get' else main_parts[0])
+                chain.append(self._dummy_plural(main_parts[0]) if action != 'get' else main_parts[0])
                 if len(main_parts) == 2:
                     params.append('id="%s"' % main_parts[1])
 
-                call_str = 'self.lh_client.lh_client.{chain}.{action}({params})'
+                call_str = 'self.client_helper.client.{chain}.{action}({params})'
                 r = eval(str.format(call_str, chain='.'.join(chain), \
                     action=action, params=','.join(params)))
                 return self._format_response(action, r), False
@@ -616,8 +616,10 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
                     text=response, as_user=True)
             except:
                 raise RuntimeError('Slack post failed')
+                
         except Exception as e:
             self._logging(str(e), level=logging.ERROR)
+            
         finally:
             self.semaphores.release()
 
@@ -625,8 +627,11 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
         if output_list and len(output_list) > 0:
             for output in output_list:
                 if output and 'text' in output and self.bot_at in output['text']:
-                    return output['text'].split(self.bot_at)[1].strip().lower(), output['channel'], output['user']
-                elif output and 'text' in output and 'channel' in output and output['channel'][0] == 'D' and output['user'] != self.bod_id:
+                    command = output['text'].split(self.bot_at)[1].strip().lower()
+                    return command, output['channel'], output['user']
+                elif output and 'text' in output and 'channel' in output \
+                    and output['channel'][0] == 'D' and output['user'] != self.bod_id \
+                    and (not 'subtype' in output or output['subtype'] != 'bot_message'):
                     return output['text'].strip().lower(), output['channel'], output['user']
         return None, None, None
 
@@ -689,9 +694,11 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
                     t.start()
 
                 time.sleep(self.poll_interval)
+                
         except KeyboardInterrupt:
             self._logging('Slack bot was interrupt manually', level=logging.WARNING)
             os.kill(os.getpid(), signal.SIGUSR1)
+            
         except Exception as error:
             self._dying_message(str(error))
 

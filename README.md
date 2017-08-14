@@ -1,6 +1,6 @@
 # Lighthouse API client
 
-This project provides a ready to go implementation of the [Lighthouse API Client](https://github.com/thiagolcmelo/oglhclient) as a Slack Bot, and a Docker image for bootstrapping the Slack Bot in minutes.
+This project provides a ready to go implementation of the [Lighthouse API Client](https://github.com/thiagolcmelo/oglhclient) as a Slack Bot.
 
 ## Authentication
 
@@ -33,10 +33,79 @@ Or, straight from the terminal:
 $ python oglhslack.py
 ```
 
+## Commands
+
+It is possible to interact with the Slack Bot in private messages (PM), private or public channels. When commands are not performed in private messages, they must be prefixed by `@mybot`, where `mybot` is the bot's name.
+
+### Built in commands
+
+There is a small set of commands which can be found the bot's help, they are pretty straight in what they do. It is possible this list of commands through:
+
+```
+@mybot help
+```
+
+Some commands have **(admin only)** on theirs descriptions, indicating that they can be performed in the `oglhadmin` channel.
+
+### API client commands
+
+This commands follow the [Lighthouse API Client](https://github.com/thiagolcmelo/oglhclient) conventions.
+
+For listing objects like `nodes` it is possible to perform:
+
+```
+@mybot list nodes
+```
+
+For listing tags belonging to a node with id *my-node-id*:
+
+```
+@mybot list tags from node my-node-id
+```
+
+For listing smartgroups:
+
+```
+@mybot list smartgroups from nodes
+```
+
+For getting information regarding to a specific node:
+
+```
+@mybot find node my-node-id
+```
+
+For getting systems's information:
+
+```
+@mybot get hostname from system
+```
+
+It works basically as:
+
+> List objects of a given type, like **nodes**, **ports**, and so on.
+>> list <objects>
+
+> List objects of a given type, belonging to a parent object, like **system**.
+>> list <objects> from <parent-object>
+
+> List objects of a given type, belonging to a parent object specified by its id.
+>> list <objects> from <parent-object> <parent-id> 
+
+> Find specific objects by their ids.
+>> find <object> <object-id>
+
+> Find specific objects by their ids, when belonging to parent objects.
+>> find <object> <object-id> from <object-parent>
+>> find <object> <object-id> from <object-parent> <parent-id>
+
+> Get objects when **list** and **find** do not apply
+>> get <object> from <parent-object>
+
 ## Channels conventions
 
-### Administration commands
+### Administration channel
 
 Commands that make changes in Lighthouse are not allowed in normal channels or in private messages.
 
-In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlhadmin**. This channel is supposed to be locked for not invited members and that only authorized users get those invites.
+In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlhadmin**. This channel is supposed to be open for authorized members only.
