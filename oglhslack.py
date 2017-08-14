@@ -163,7 +163,7 @@ class OgLhSlackBot:
     terminal.
 
     Usage:
-    
+
     >>> from oglh_bot import OgLhSlackBot
     >>> slack_bot = OgLhSlackBot()
     >>> slack_bot.listen()
@@ -185,7 +185,7 @@ class OgLhSlackBot:
         self.bot_name = os.environ.get('SLACK_BOT_NAME')
         self.default_channel = os.environ.get('SLACK_BOT_DEFAULT_CHANNEL')
         self.slack_token = os.environ.get('SLACK_BOT_TOKEN')
-        
+
         if not (self.bot_name and self.default_channel and self.slack_token):
             raise RuntimeError("""
             Some of the required environment variables are not set, please refer
@@ -507,7 +507,7 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
             if action == 'list':
                 object_name = [k for k in resp.__dict__.keys() if k != 'meta'][0]
                 object_label = ''
-                
+
                 if 'name' in resp.__dict__[object_name][0].__dict__:
                     object_label = 'name'
                 if 'label' in resp.__dict__[object_name][0].__dict__:
@@ -523,7 +523,7 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
                     names = [o.__dict__[object_label] + ' (id: ' + o.__dict__['id'] + ')' for o in resp.__dict__[object_name]]
                 except:
                     names = [o.__dict__[object_label] for o in resp.__dict__[object_name]]
-                    
+
                 return self._format_list(sorted(names), object_name)
             elif action == 'find' or 'get':
                 return textwrap.dedent("""
@@ -616,10 +616,10 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
                     text=response, as_user=True)
             except:
                 raise RuntimeError('Slack post failed')
-                
+
         except Exception as e:
             self._logging(str(e), level=logging.ERROR)
-            
+
         finally:
             self.semaphores.release()
 
@@ -694,11 +694,11 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
                     t.start()
 
                 time.sleep(self.poll_interval)
-                
+
         except KeyboardInterrupt:
             self._logging('Slack bot was interrupt manually', level=logging.WARNING)
             os.kill(os.getpid(), signal.SIGUSR1)
-            
+
         except Exception as error:
             self._dying_message(str(error))
 

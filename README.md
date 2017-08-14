@@ -83,24 +83,25 @@ For getting systems's information:
 
 It works basically as:
 
-> List objects of a given type, like **nodes**, **ports**, and so on.
->> list <objects>
+Listing objects of a given type, like **nodes**, **ports**, and so on.
+> **list** *objects*
 
-> List objects of a given type, belonging to a parent object, like **system**.
->> list <objects> from <parent-object>
+Listing objects of a given type, belonging to a parent object, like **system**.
+> **list** *objects* **from** *parent-object*
 
-> List objects of a given type, belonging to a parent object specified by its id.
->> list <objects> from <parent-object> <parent-id> 
+Listing objects of a given type, belonging to a parent object specified by its id.
+> **list** *objects* **from** *parent-object* *parent-id*
 
-> Find specific objects by their ids.
->> find <object> <object-id>
+Find specific objects by their ids.
+> **find** *object* *object-id*
 
-> Find specific objects by their ids, when belonging to parent objects.
->> find <object> <object-id> from <object-parent>
->> find <object> <object-id> from <object-parent> <parent-id>
+Find specific objects by their ids, when belonging to parent objects.
+> **find** *object* *object-id* **from** *parent-object*
 
-> Get objects when **list** and **find** do not apply
->> get <object> from <parent-object>
+> **find** *object* *object-id* **from** *parent-object* *parent-id*
+
+Get objects when **list** and **find** do not apply
+> **get** *object* **from** *parent-object*
 
 ## Channels conventions
 
