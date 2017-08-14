@@ -2,6 +2,8 @@
 
 This project provides a ready to go implementation of the [Lighthouse API Client](https://github.com/thiagolcmelo/oglhclient) as a Slack Bot.
 
+It has also a [Docker image](https://hub.docker.com/r/thiagolcmelo/oglhslack/) for launching the slack bot in minutes.
+
 ## Authentication
 
 The **Lighthouse API Client** expects to find the following environment variables:
@@ -110,3 +112,27 @@ Get objects when **list** and **find** do not apply
 Commands that make changes in Lighthouse are not allowed in normal channels or in private messages.
 
 In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlhadmin**. This channel is supposed to be open for authorized members only.
+
+## Docker image
+
+The Opengear Lighthouse docker image is available at https://hub.docker.com/r/thiagolcmelo/oglhslack/.
+
+It requires a file containing the environment variables as specified [here](https://docs.docker.com/engine/reference/commandline/run/#set-environment-variables--e-env-env-file).
+
+It is supposed to be like:
+
+```
+SLACK_BOT_TOKEN=xoxb-************-************************
+SLACK_BOT_NAME=mybotname
+SLACK_BOT_DEFAULT_CHANNEL=myDefaultChannel
+SLACK_BOT_DEFAULT_LOG_CHANNEL=myDefaultLogChannel
+OGLH_API_USER=myOgLhUser
+OGLH_API_PASS=myOgLhPassword
+OGLH_API_URL=https://oglh-octo.opengear.com
+```
+
+For launching the Slack bot just run:
+
+```bash
+$ sudo docker run --env-file /path/to/my/env.list thiagolcmelo/oglhslack
+```
