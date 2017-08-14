@@ -36,9 +36,7 @@ class OgLhClientHelper:
         @new_pending is True if there is some new pending node since the bot
             was instantiated, and False otherwise
         """
-
         body = self.client.nodes.list({ 'config:status' : 'Registered' })
-
         name_ids = { node.name: node.id for node in body.nodes \
             if node.approved == 0 }
         new_pending = (set(name_ids) > set(self.pending_name_ids))
@@ -193,10 +191,14 @@ class OgLhSlackBot:
             """)
 
         self.default_log_channel = os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
+        self.admin_channel = os.environ.get('SLACK_BOT_ADMIN_CHANNEL') ||'oglhadmin'
+        
         self.slack_client = SlackClient(self.slack_token)
+        self.client_helper = OgLhClientHelper()
+        
+        # the max number of threads is equals to the number of cpus
         self.poll_max_workers = multiprocessing.cpu_count()
         self.semaphores = threading.BoundedSemaphore(value=self.poll_max_workers)
-        self.client_helper = OgLhClientHelper()
         self.poll_interval = 1
 
         self.func_intents = { \
@@ -216,22 +218,109 @@ class OgLhSlackBot:
             raise RuntimeError('Slack connection failed')
         self.bod_id = self._get_bot_id()
         self.bot_at = '<@' + self.bod_id + '>'
-        self.admin_channel = 'oglhadmin'
 
-    # Slack Bot methods
-    ## Methods for dealing with Slack Bot
+    def listen(self):
+        """
+        Listen Slack channels for messages addressed to oglh slack bot
+        """
+        try:
+            self._logging('Hi there! I am here to help!', force_slack=True)
+            while True:
+                try:
+                    command, channel, user_id = self._read(self.slack_client.rtm_read())
+                except:
+                    raise RuntimeError('Slack read failed, please check your token')
+
+                if command and channel and user_id:
+                    t = threading.Thread(target=self._command, \
+                        args=(command, channel, user_id))
+                    t.setDaemon(True)
+                    t.start()
+
+                time.sleep(self.poll_interval)
+
+        except KeyboardInterrupt:
+            self._logging('Slack bot was interrupt manually', level=logging.WARNING)
+            os.kill(os.getpid(), signal.SIGUSR1)
+
+        except Exception as error:
+            self._dying_message(str(error))
+
+    def _read(self, output_list):
+        """
+        reads slack messages in channels where the bot has access 
+        (PM, groups enrolled, etc)
+        """
+        if output_list and len(output_list) > 0:
+            for output in output_list:
+                if output and 'text' in output and self.bot_at in output['text']:
+                    command = output['text'].split(self.bot_at)[1].strip().lower()
+                    return command, output['channel'], output['user']
+                elif output and 'text' in output and 'channel' in output \
+                    and output['channel'][0] == 'D' and output['user'] != self.bod_id \
+                    and (not 'subtype' in output or output['subtype'] != 'bot_message'):
+                    return output['text'].strip().lower(), output['channel'], output['user']
+        return None, None, None
+
+    def _command(self, command, channel, user_id):
+        """
+        tries to execute a command received in some of the available channels
+        or private messages
+        
+        it has a semaphore for assuring that no more commands are executed
+        simultaneously than the number of cpus
+        """
+        try:
+            self.semaphores.acquire()
+            response = ''
+            is_help = False
+
+            username = self._get_slack_username(user_id)
+            channel_name = self._get_channel_name(channel)
+
+            self._logging(str.format('Got command: `{command}`, from: {username}', command, username))
+            if user_id:
+                response = '<@' + user_id + '|' + username + '> '
+
+            # check whether some of the built in funtions were called
+            output = self._built_in_functions(command, channel_name, username)
+
+            # try the more complex query tool in case of no built in function
+            if not output:
+                output, is_help = self._query_tool(command, channel_name)
+
+            response += output
+            self._logging('Responding: ' + (response if not is_help else 'help message'))
+
+            try:
+                self.slack_client.api_call('chat.postMessage', channel=channel, \
+                    text=response, as_user=True)
+            except:
+                raise RuntimeError('Slack post failed')
+
+        except Exception as e:
+            self._logging(str(e), level=logging.ERROR)
+
+        finally:
+            self.semaphores.release()
 
     def _get_bot_id(self):
+        """
+        return the slack id for the bot specified at SLACK_BOT_NAME env var
+        """
         try:
             users_list = self.slack_client.api_call('users.list')
         except:
-            raise RuntimeError('Slack users list failed')
+            raise RuntimeError('Slack users list failed, please check your token')
         for member in users_list['members']:
             if member['name'] == self.bot_name:
                 return member['id']
         raise RuntimeError('User ' + self.bot_name + ' not found')
 
     def _get_channel_name(self, channel_id):
+        """
+        returns the friendly name of a channel given its id
+        """
         try:
             channel_list = self.slack_client.api_call('channels.list')
         except:
@@ -240,6 +329,82 @@ class OgLhSlackBot:
             if c['id'] == channel_id:
                 return c['name']
         return None
+    
+    def _get_slack_username(self, user_id):
+        """
+        returns the friendly username of a user given its id
+        
+        if the username is not found 'friend' is returned
+        """
+        if user_id:
+            try:
+                info = self.slack_client.api_call('users.info', user=user_id)
+            except:
+                raise RuntimeError('Slack user info failed')
+            username = info['user']['name']
+            if username:
+                return username
+        return 'friend'
+
+    def _built_in_functions(self, command, channel, username):
+        """
+        try to parse the :command as one of the built in ones, :channel is used
+        for checking where the command was performed, whether in a 
+        public/private channel or in a private message, :username is required
+        for some of the built in functions
+        
+        it also prevents from executing admin commands in not authorized channels
+        """
+        intent, _, scope = command.partition(' ')
+        for func, intents in self.func_intents.iteritems():
+            if intent in intents and (channel == self.admin_channel or not 'admin' in intents):
+                return func(self._sanitise(scope), username)
+            elif intent in intents and channel != self.admin_channel and 'admin' in intents:
+                return "This operation must take place at `%s` channel." % self.admin_channel
+        return None
+
+    def _query_tool(self, command, channel):
+        """
+        tries to parse the :command as query, with a proper syntax specified
+        at the documentation
+        
+        it also prevents from executing commands that make changes from
+        not authorized channels
+        """
+        try:
+            action, _, scope = re.sub('\s+', ' ', command).partition(' ')
+            action = action.lower()
+            scope = scope.strip()
+            if action in ['update', 'set', 'delete', 'create'] and channel != self.admin_channel:
+                return "Actions other than `get`, `find` and `list` " + \
+                    "must take place at `%s` channel." % self.admin_channel, False
+            else:
+                params=[]
+                chain = []
+                main_parts = []
+
+                if 'from' in scope:
+                    objects = scope.split('from')
+                    main_parts = objects[0].strip().split(' ')
+                    parent_parts = objects[1].strip().split(' ')
+                    chain.append(self._dummy_plural(parent_parts[0]))
+                    if len(parent_parts) == 2:
+                        params.append('parent_id="%s"' % parent_parts[1])
+                else:
+                    main_parts = scope.strip().split(' ')
+
+                chain.append(self._dummy_plural(main_parts[0]) if action != 'get' else main_parts[0])
+                if len(main_parts) == 2:
+                    params.append('id="%s"' % main_parts[1])
+
+                call_str = 'self.client_helper.client.{chain}.{action}({params})'
+                r = eval(str.format(call_str, chain='.'.join(chain), \
+                    action=action, params=','.join(params)))
+                return self._format_response(action, r), False
+        except:
+            return self._show_help(), True
+
+    # built in functions
 
     def _ports_list_ssh(self, ports, label, username):
         ssh_urls = []
@@ -362,18 +527,83 @@ class OgLhSlackBot:
     def _get_web(self, *_):
         return '<' + self.client_helper.url + '>'
 
-    def _get_slack_username(self, user_id):
-        if user_id:
-            try:
-                info = self.slack_client.api_call('users.info', user=user_id)
-            except:
-                raise RuntimeError('Slack user info failed')
-            username = info['user']['name']
-            if username:
-                return username
-        return 'nobody'
+    
+    # formatting functions
+
+    def _sanitise(self, line):
+        sanitised = []
+        pattern = re.compile('^\<.*\|(.*)\>$')
+        for s in line.strip().split():
+            if pattern.search(s):
+                sanitised.append(pattern.search(s).group(1))
+            else:
+                sanitised.append(s)
+        return ' '.join(sanitised)
+
+    def _dummy_plural(self, word):
+        """
+        it is a very simple tool for get plural names according to those used
+        by the api, it is just a matter of making it easier for the user when
+        guessing about query syntax
+        """
+        if word == 'system':
+            return word
+        if word[-1] == 'y':
+            return word[:-1] + 'ies'
+        elif word[-1] == 's':
+            return word
+        return word + 's'
+
+    def _format_response(self, action, resp):
+        """
+        formats the message according to the action
+        
+        for 'list', minimal information is shown, mosly a list of names and/or
+        ids
+        
+        for 'find' or 'get' returns a structured view of the objects properties
+        """
+        try:
+            if 'error' in resp.__dict__.keys() and resp.error[0].text == 'Permission denied':
+                if action == 'find':
+                    return 'Object does not exist or @%s is not allowed to fetch it.' % self.bot_name
+                return '@%s is not allowed execute such an action.' % self.bot_name
+
+            if action == 'list':
+                object_name = [k for k in resp.__dict__.keys() if k != 'meta'][0]
+                object_label = ''
+
+                if 'name' in resp.__dict__[object_name][0].__dict__:
+                    object_label = 'name'
+                if 'label' in resp.__dict__[object_name][0].__dict__:
+                    object_label = 'label'
+
+                if object_label == '':
+                    return textwrap.dedent("""
+                        ```
+                        """ + self._dump_obj(resp) + """
+                        ```""")
+
+                try:
+                    names = [o.__dict__[object_label] + ' (id: ' + o.__dict__['id'] + ')' for o in resp.__dict__[object_name]]
+                except:
+                    names = [o.__dict__[object_label] for o in resp.__dict__[object_name]]
+
+                return self._format_list(sorted(names), object_name)
+            elif action == 'find' or 'get':
+                return textwrap.dedent("""
+                    ```
+                    """ + self._dump_obj(resp) + """
+                    ```""")
+        except:
+            return str(resp)
 
     def _format_list(self, raw_list, list_title=''):
+        """
+        format an array of strings according to its length.
+        until 10 items, a simple list is returned
+        more than 10 items are printed in columns
+        """
         if len(raw_list) <= 10:
             return '\n' + '\n'.join(['> %d. %s' % (i + 1, e) for i, e in enumerate(raw_list)])
         max_len = max([len(l) for l in raw_list])
@@ -389,7 +619,70 @@ class OgLhSlackBot:
             ```
             """)
 
+    def _dump_obj(self, obj, level=0):
+        """
+        tries to dump an object in a easy to read description of its properties
+        """
+        response = ''
+        for key, value in obj.__dict__.items():
+            try:
+                if isinstance(value, list):
+                    response += ('\n%s:' % (" " * level + key)) + self._dump_obj(value[0], level + 2)
+                else:
+                    response += ('\n%s:' % (" " * level + key)) + self._dump_obj(value, level + 2)
+            except Exception as e:
+                response += '\n' + " " * level + "%s -> %s" % (key, value)
+        return response
+
+    def _dying_message(self, message):
+        """
+        it is final message for the default slack channel and for the log
+        file, in case of issues posting to slack, only the log file part
+        will work
+        """
+        self._logging(message, level=logging.ERROR)
+        warning_message = textwrap.dedent("""
+            @""" + self.bot_name + """  went offline with error message:
+            ```
+            """ + message + """
+            ```
+            """)
+        self.slack_client = SlackClient(self.slack_token)
+        self.slack_client.api_call('chat.postMessage', \
+            channel=self.default_channel, text=warning_message, as_user=True)
+
+    def _logging(self, message, level=logging.INFO, force_slack=False):
+        """
+        it will log to slack only if there is a specified slack channel for logs
+        or if the level is not a simple logging.INFO
+        """
+        if self.default_log_channel and self.slack_client \
+            and (self.default_log_channel != self.default_channel \
+            or level > logging.INFO or force_slack):
+            slack_message = message
+            if level > logging.INFO:
+                slack_message = textwrap.dedent("""
+                    @""" + self.bot_name + """  would like you to know:
+
+                    > """ + message + """
+
+                    """)
+            self.slack_client.api_call('chat.postMessage', \
+                channel=self.default_log_channel, text=slack_message, as_user=True)
+
+        if level == logging.CRITICAL:
+            self.logger.critical(message)
+        elif level == logging.ERROR:
+            self.logger.error(message)
+        elif level == logging.WARNING:
+            self.logger.warning(message)
+        else:
+            self.logger.info(message[0:100] + ('...' if len(message) > 100 else ''))
+    
     def _show_help(self, *_):
+        """
+        returns a text with instructions about the commands syntax
+        """
         build_in_commands = [
             {
                 'command': 'devices',
@@ -477,230 +770,6 @@ Generically:
 
 For a complete reference, please refer to https://github.com/thiagolcmelo/oglhslack
             """)
-
-    def _sanitise(self, line):
-        sanitised = []
-        pattern = re.compile('^\<.*\|(.*)\>$')
-        for s in line.strip().split():
-            if pattern.search(s):
-                sanitised.append(pattern.search(s).group(1))
-            else:
-                sanitised.append(s)
-        return ' '.join(sanitised)
-
-    def _dummy_plural(self, word):
-        if word == 'system':
-            return word
-        if word[-1] == 'y':
-            return word[:-1] + 'ies'
-        elif word[-1] == 's':
-            return word
-        return word + 's'
-
-    def _format_response(self, action, resp):
-        try:
-            if 'error' in resp.__dict__.keys() and resp.error[0].text == 'Permission denied':
-                if action == 'find':
-                    return 'Object does not exist or @%s is not allowed to fetch it.' % self.bot_name
-                return '@%s is not allowed execute such an action.' % self.bot_name
-
-            if action == 'list':
-                object_name = [k for k in resp.__dict__.keys() if k != 'meta'][0]
-                object_label = ''
-
-                if 'name' in resp.__dict__[object_name][0].__dict__:
-                    object_label = 'name'
-                if 'label' in resp.__dict__[object_name][0].__dict__:
-                    object_label = 'label'
-
-                if object_label == '':
-                    return textwrap.dedent("""
-                        ```
-                        """ + self._dump_obj(resp) + """
-                        ```""")
-
-                try:
-                    names = [o.__dict__[object_label] + ' (id: ' + o.__dict__['id'] + ')' for o in resp.__dict__[object_name]]
-                except:
-                    names = [o.__dict__[object_label] for o in resp.__dict__[object_name]]
-
-                return self._format_list(sorted(names), object_name)
-            elif action == 'find' or 'get':
-                return textwrap.dedent("""
-                    ```
-                    """ + self._dump_obj(resp) + """
-                    ```""")
-        except:
-            return str(resp)
-
-    def _dump_obj(self, obj, level=0):
-        response = ''
-        for key, value in obj.__dict__.items():
-            try:
-                if isinstance(value, list):
-                    response += ('\n%s:' % (" " * level + key)) + self._dump_obj(value[0], level + 2)
-                else:
-                    response += ('\n%s:' % (" " * level + key)) + self._dump_obj(value, level + 2)
-            except Exception as e:
-                response += '\n' + " " * level + "%s -> %s" % (key, value)
-        return response
-
-    def _query_tool(self, command, channel):
-        try:
-            action, _, scope = re.sub('\s+', ' ', command).partition(' ')
-            action = action.lower()
-            scope = scope.strip()
-            if action in ['update', 'set', 'delete', 'create'] and channel != self.admin_channel:
-                return "Actions other than `get`, `find` and `list` " + \
-                    "must take place at `%s` channel." % self.admin_channel, False
-            else:
-                params=[]
-                chain = []
-                main_parts = []
-
-                if 'from' in scope:
-                    objects = scope.split('from')
-                    main_parts = objects[0].strip().split(' ')
-                    parent_parts = objects[1].strip().split(' ')
-                    chain.append(self._dummy_plural(parent_parts[0]))
-                    if len(parent_parts) == 2:
-                        params.append('parent_id="%s"' % parent_parts[1])
-                else:
-                    main_parts = scope.strip().split(' ')
-
-                chain.append(self._dummy_plural(main_parts[0]) if action != 'get' else main_parts[0])
-                if len(main_parts) == 2:
-                    params.append('id="%s"' % main_parts[1])
-
-                call_str = 'self.client_helper.client.{chain}.{action}({params})'
-                r = eval(str.format(call_str, chain='.'.join(chain), \
-                    action=action, params=','.join(params)))
-                return self._format_response(action, r), False
-        except:
-            return self._show_help(), True
-
-    def _built_in_functions(self, command, channel, username):
-        intent, _, scope = command.partition(' ')
-        for func, intents in self.func_intents.iteritems():
-            if intent in intents and (channel == self.admin_channel or not 'admin' in intents):
-                return func(self._sanitise(scope), username)
-            elif intent in intents and channel != self.admin_channel and 'admin' in intents:
-                return "This operation must take place at `%s` channel." % self.admin_channel
-        return None
-
-    def _command(self, command, channel, user_id):
-        try:
-            self.semaphores.acquire()
-            response = ''
-            is_help = False
-
-            username = self._get_slack_username(user_id)
-            channel_name = self._get_channel_name(channel)
-
-            self._logging('Got command: `' + command + '`, from: ' + username + '')
-            if user_id:
-                response = '<@' + user_id + '|' + username + '> '
-
-            # check whether some of the built in funtions were called
-            output = self._built_in_functions(command, channel_name, username)
-
-            # try the more complex query tool
-            if not output:
-                output, is_help = self._query_tool(command, channel_name)
-
-            response += output
-            self._logging('Responding: ' + (response if not is_help else 'help message'))
-
-            try:
-                self.slack_client.api_call('chat.postMessage', channel=channel, \
-                    text=response, as_user=True)
-            except:
-                raise RuntimeError('Slack post failed')
-
-        except Exception as e:
-            self._logging(str(e), level=logging.ERROR)
-
-        finally:
-            self.semaphores.release()
-
-    def _read(self, output_list):
-        if output_list and len(output_list) > 0:
-            for output in output_list:
-                if output and 'text' in output and self.bot_at in output['text']:
-                    command = output['text'].split(self.bot_at)[1].strip().lower()
-                    return command, output['channel'], output['user']
-                elif output and 'text' in output and 'channel' in output \
-                    and output['channel'][0] == 'D' and output['user'] != self.bod_id \
-                    and (not 'subtype' in output or output['subtype'] != 'bot_message'):
-                    return output['text'].strip().lower(), output['channel'], output['user']
-        return None, None, None
-
-    def _dying_message(self, message):
-        warning_message = textwrap.dedent("""
-            @""" + self.bot_name + """  went offline with error message:
-            ```
-            """ + message + """
-            ```
-            """)
-        self.slack_client = SlackClient(self.slack_token)
-        self.slack_client.api_call('chat.postMessage', \
-            channel=self.default_channel, text=warning_message, as_user=True)
-
-    def _logging(self, message, level=logging.INFO, force_slack=False):
-        """
-        it will log to slack only if there is a specified slack channel for logs
-        or if the level is not a simple logging.INFO
-        """
-
-        if self.default_log_channel and self.slack_client \
-            and (self.default_log_channel != self.default_channel \
-            or level > logging.INFO or force_slack):
-            slack_message = message
-            if level > logging.INFO:
-                slack_message = textwrap.dedent("""
-                    @""" + self.bot_name + """  would like you to know:
-
-                    > """ + message + """
-
-                    """)
-            self.slack_client.api_call('chat.postMessage', \
-                channel=self.default_log_channel, text=slack_message, as_user=True)
-
-        if level == logging.CRITICAL:
-            self.logger.critical(message)
-        elif level == logging.ERROR:
-            self.logger.error(message)
-        elif level == logging.WARNING:
-            self.logger.warning(message)
-        else:
-            self.logger.info(message[0:100] + ('...' if len(message) > 100 else ''))
-
-    def listen(self):
-        """
-        It keeps listening to slack messages until the process is manually killed.
-        """
-        try:
-            self._logging('Hi there! I am here to help!', force_slack=True)
-            while True:
-                try:
-                    command, channel, user_id = self._read(self.slack_client.rtm_read())
-                except:
-                    raise RuntimeError('Slack read failed')
-
-                if command and channel and user_id:
-                    t = threading.Thread(target=self._command, \
-                        args=(command, channel, user_id))
-                    t.setDaemon(True)
-                    t.start()
-
-                time.sleep(self.poll_interval)
-
-        except KeyboardInterrupt:
-            self._logging('Slack bot was interrupt manually', level=logging.WARNING)
-            os.kill(os.getpid(), signal.SIGUSR1)
-
-        except Exception as error:
-            self._dying_message(str(error))
 
 if __name__ == '__main__':
     slack_bot = OgLhSlackBot()
