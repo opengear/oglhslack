@@ -191,7 +191,7 @@ class OgLhSlackBot:
             """)
 
         self.default_log_channel = os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
-        self.admin_channel = os.environ.get('SLACK_BOT_ADMIN_CHANNEL') ||'oglhadmin'
+        self.admin_channel = os.environ.get('SLACK_BOT_ADMIN_CHANNEL') or 'oglhadmin'
         
         self.slack_client = SlackClient(self.slack_token)
         self.client_helper = OgLhClientHelper()
@@ -278,7 +278,8 @@ class OgLhSlackBot:
             username = self._get_slack_username(user_id)
             channel_name = self._get_channel_name(channel)
 
-            self._logging(str.format('Got command: `{command}`, from: {username}', command, username))
+            self._logging(str.format('Got command: `{command}`, from: {username}', \
+                command=command, username=username))
             if user_id:
                 response = '<@' + user_id + '|' + username + '> '
 

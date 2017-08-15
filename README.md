@@ -20,6 +20,7 @@ It expects to find the following environment variables:
 - **(required)** `SLACK_BOT_NAME` is the name given to the Slack bot.
 - **(required)** `SLACK_BOT_DEFAULT_CHANNEL` a default Slack channel name used for warnings.
 - **(optional)** `SLACK_BOT_DEFAULT_LOG_CHANNEL` a Slack channel name for logs, if it is not provided, logs will be printed to a file only, but logs classified as high priority like warnings and errors will be printed to the `SLACK_BOT_DEFAULT_CHANNEL` when `SLACK_BOT_DEFAULT_LOG_CHANNEL` is not set.
+- **(optional)** `SLACK_BOT_ADMIN_CHANNEL` is the name for the administrator channel, if no name is informed, it is assumed to be **oglhadmin**.
 
 The **Lighhouse** Slack bot can be triggered as simple as:
 
@@ -111,7 +112,7 @@ Get objects when **list** and **find** do not apply
 
 Commands that make changes in Lighthouse are not allowed in normal channels or in private messages.
 
-In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlhadmin**. This channel is supposed to be open for authorized members only.
+In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlhadmin**, or with the name specified in the `SLACK_BOT_ADMIN_CHANNEL` environment variable. This channel is supposed to be open for authorized members only.
 
 ## Docker image
 
@@ -126,6 +127,7 @@ SLACK_BOT_TOKEN=xoxb-************-************************
 SLACK_BOT_NAME=mybotname
 SLACK_BOT_DEFAULT_CHANNEL=myDefaultChannel
 SLACK_BOT_DEFAULT_LOG_CHANNEL=myDefaultLogChannel
+SLACK_BOT_ADMIN_CHANNEL=oglhadmin
 OGLH_API_USER=myOgLhUser
 OGLH_API_PASS=myOgLhPassword
 OGLH_API_URL=https://oglh-octo.opengear.com
