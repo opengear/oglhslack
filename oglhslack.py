@@ -2,9 +2,13 @@
 
 import os, signal, textwrap, re, time, multiprocessing, threading
 import logging, logging.handlers, yaml
+from functools import wraps, partial
+from future.standard_library import install_aliases
 
 from oglhclient import LighthouseApiClient
 from slackclient import SlackClient
+
+install_aliases()
 
 class OgLhClientHelper:
 
@@ -55,7 +59,7 @@ class OgLhClientHelper:
         @enrolled_node_names is a list of the currently enrolled nodes
         """
         body = self.client.nodes.list({ 'config:status' : 'Enrolled' })
-        return sorted([node.name for node in body.nodes], key=unicode.lower)
+        return sorted([node.name for node in body.nodes])
 
     def get_node_id(self, node_name):
         """Returns the node id given its name
@@ -90,7 +94,7 @@ class OgLhClientHelper:
             body = self.client.nodes.list()
             labels = [port.label for node in body.nodes for port \
                 in node.ports if port.mode == 'consoleServer']
-        return sorted(labels, key=unicode.lower)
+        return sorted(labels)
 
     def get_summary(self):
         """Returns a summary about how many nodes are currently connected,
@@ -135,7 +139,7 @@ class OgLhClientHelper:
             if node.name in node_names:
                 try:
                     result = self.client.nodes.delete(id=node.id)
-                    if 'error' in result.__dict__.keys() \
+                    if 'error' in result._asdict() \
                         and len(result.error) > 0:
                         raise RuntimeError(result.error[0].text)
                     deleted_names.append(node.name)
@@ -174,7 +178,7 @@ class OgLhClientHelper:
                     }
                     result = self.client.nodes.update(data=approved_node, \
                         id=node.id)
-                    if 'error' in result.__dict__.keys() \
+                    if 'error' in result._asdict() \
                         and len(result.error) > 0:
                         raise RuntimeError(result.error[0].text)
                     approved_names.append(node.name)
@@ -219,9 +223,9 @@ class OgLhClientHelper:
             is_valid = False
             
             for e in entitlements:
-                if 'features' in e.__dict__.keys() and \
-                    'maintenance' in e.features.__dict__.keys() and \
-                    'nodes' in e.features.__dict__.keys():
+                if 'features' in e._asdict() and \
+                    'maintenance' in e.features._asdict() and \
+                    'nodes' in e.features._asdict():
                     is_valid |= (time.time() <= int(e.features.maintenance) \
                         and int(e.features.nodes) >= nodes_count)
             return is_valid
@@ -468,7 +472,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         authorized channels
         """
         intent, _, scope = command.partition(' ')
-        for func, intents in self.func_intents.iteritems():
+        for func, intents in self.func_intents.items():
             if intent in intents and (channel == self.admin_channel or \
                 not 'admin' in intents):
                 return func(self._sanitise(scope), username)
@@ -641,11 +645,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
 
     def _get_enrolled(self, *_):
         """return a list of the current nodes connectes or enrolled"""
-        try:
-            enrolled_nodes = self.client_helper.get_enrolled()
-        except Exception as e:
-            self._logging('erro buscando nos: '+str(e))
-
+        enrolled_nodes = self.client_helper.get_enrolled()
         if enrolled_nodes:
             response = self._format_list(enrolled_nodes)
         else:
@@ -749,19 +749,19 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         :resp might be a simple string, an array, or a named tuple
         """
         try:
-            if 'error' in resp.__dict__.keys() \
+            if 'error' in resp._asdict() \
                 and resp.error[0].text == 'Permission denied':
                 return 'Object does not exist (please check the id) ' + \
                     'or @%s is not allowed to fetch it.' % self.bot_name
 
             if action == 'list':
-                object_name = [k for k in resp.__dict__.keys() \
+                object_name = [k for k in resp._asdict() \
                     if k != 'meta'][0]
                 object_label = ''
 
-                if 'name' in resp.__dict__[object_name][0].__dict__:
+                if 'name' in resp._asdict()[object_name][0]._asdict():
                     object_label = 'name'
-                if 'label' in resp.__dict__[object_name][0].__dict__:
+                if 'label' in resp._asdict()[object_name][0]._asdict():
                     object_label = 'label'
 
                 if object_label == '':
@@ -771,12 +771,13 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                         ```""")
 
                 try:
-                    names = [o.__dict__[object_label] + \
-                        ' (id: ' + o.__dict__['id'] + ')' \
-                        for o in resp.__dict__[object_name]]
+                    #names = [o._asdict()[object_label] + \
+                    #    ' (id: ' + o._asdict()['id'] + ')' \
+                    names = [o._asdict()[object_label] \
+                        for o in resp._asdict()[object_name]]
                 except:
-                    names = [o.__dict__[object_label] \
-                        for o in resp.__dict__[object_name]]
+                    names = [o._asdict()[object_label] \
+                        for o in resp._asdict()[object_name]]
 
                 return self._format_list(sorted(names), object_name)
             elif action == 'find' or 'get':
@@ -825,7 +826,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         for identation
         """
         response = ''
-        for key, value in obj.__dict__.items():
+        for key, value in obj._asdict().items():
             try:
                 if isinstance(value, list):
                     response += ('\n%s:' % (" " * level + key)) + \
