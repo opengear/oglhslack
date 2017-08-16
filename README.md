@@ -60,10 +60,10 @@ For listing objects like `nodes` it is possible to perform:
 @mybot list nodes
 ```
 
-For listing tags belonging to a node with id *my-node-id*:
+For listing tags belonging to a node with id *my-node-name*:
 
 ```
-@mybot list tags from node my-node-id
+@mybot list tags from node my-node-name
 ```
 
 For listing smartgroups:
@@ -75,7 +75,7 @@ For listing smartgroups:
 For getting information regarding to a specific node:
 
 ```
-@mybot find node my-node-id
+@mybot find node my-node-name
 ```
 
 For getting systems's information:
@@ -93,15 +93,15 @@ Listing objects of a given type, belonging to a parent object, like **system**.
 > **list** *objects* **from** *parent-object*
 
 Listing objects of a given type, belonging to a parent object specified by its id.
-> **list** *objects* **from** *parent-object* *parent-id*
+> **list** *objects* **from** *parent-object* *parent-name*
 
 Find specific objects by their ids.
-> **find** *object* *object-id*
+> **find** *object* *object-name*
 
 Find specific objects by their ids, when belonging to parent objects.
-> **find** *object* *object-id* **from** *parent-object*
+> **find** *object* *object-name* **from** *parent-object*
 
-> **find** *object* *object-id* **from** *parent-object* *parent-id*
+> **find** *object* *object-name* **from** *parent-object* *parent-name*
 
 Get objects when **list** and **find** do not apply
 > **get** *object* **from** *parent-object*

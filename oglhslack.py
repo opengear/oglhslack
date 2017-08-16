@@ -2,7 +2,10 @@
 
 import os, signal, textwrap, re, time, multiprocessing, threading
 import logging, logging.handlers, yaml
+
+from datetime import datetime, timedelta
 from functools import wraps, partial
+from collections import OrderedDict
 from future.standard_library import install_aliases
 
 from oglhclient import LighthouseApiClient
@@ -31,7 +34,30 @@ class OgLhClientHelper:
         """
         body = self.client.nodes.list({ 'port:label': label })
         return [port for node in body.nodes for port in node.ports \
-            if port.label.lower() == label]
+            if port.label.lower() == label.lower()]
+
+    def get_smart_groups(self):
+        """returns a list of smartgroups"""
+        try:
+            body = self.client.nodes.smartgroups.list()
+            return sorted([s.name for s in body.smartgroups])
+        except:
+            return None
+        
+    def get_smart_group_nodes(self, smartgroup):
+        """returns a list of nodes belonging to a smartgroup
+        
+        :smartgroup is the smartgroup name
+        """
+        try:
+            body = self.client.nodes.smartgroups.list()
+            for s in body.smartgroups:
+                if s.name.lower() == smartgroup.lower():
+                    nodes = self.client.nodes.list(json=s.query).nodes
+                    node_names = [n.name for n in nodes]
+                    return sorted(node_names, key=lambda k: k.lower())
+        except:
+            return None
 
     def get_pending(self):
         """
@@ -128,7 +154,7 @@ class OgLhClientHelper:
 
         >>> nodes = ['myNodeName1', 'myNodeName2', 'myNodeName3']
         >>> deleted_list = slack_bot.delete_nodes(nodes)
-        >>> print deleted_list
+        >>> print(deleted_list)
 
         @deleted_list is a subset of :node_names with those which were deleted
         """
@@ -157,7 +183,7 @@ class OgLhClientHelper:
 
         >>> nodes = ['myNodeName1', 'myNodeName2', 'myNodeName3']
         >>> approved_list = slack_bot.approve_nodes(nodes)
-        >>> print approved_list
+        >>> print(approved_list)
 
         @approved_list is a subset of :node_names with those which were approved
         """
@@ -231,8 +257,122 @@ class OgLhClientHelper:
             return is_valid
         except:
             return False
+            
+    def get_object_id(self, object_type, object_name, \
+        parent_type=None, parent_name=None, parent_id=None):
+        """Returns the id for a generic object based on its name, if it is a
+        child object, the parent information is required
         
+        :object_type is the type like: 'nodes', 'tags', 'smartgroups', etc.
+        :object_name the known name of the object
+        :parent_type depends on the object, for 'tags' it might be 'nodes'
+        :parent_name the known name of the parent object
+        :parent_id if the parent id is known, it might reduce the cost of
+        finding it
+        """
+        try:
+            if parent_type and parent_name and not parent_id:
+                parent_id = self.get_object_id(parent_type, parent_name)
+            
+            chain = []
+            params = []
+            if parent_type:
+                chain.append(parent_type)
+                params.append('parent_id=' + parent_id)
+            chain.append(object_type)
+            
+            call_str = 'self.client.{chain}.list({params})'
+            r = eval(str.format(call_str, chain='.'.join(chain), \
+                params=','.join(params)))
+            
+            for o in r._asdict()[object_type]:
+                obj_label = ''
+                for label in ['name', 'label', 'username', 'groupname']:
+                    if label in o._asdict():
+                        obj_label = label
+                        break
+            
+                if o._asdict()[obj_label] == object_name:
+                    return o.id
+        except:
+            return object_name
 
+    def get_monitor(self):
+        """builds a report similar to the web ui"""
+        nodes = self.client.nodes.list().nodes
+        licenses = self.client.system.licenses.list().licenses
+        entitlements = self.client.system.entitlements.list().entitlements
+        connected, pending, disconnected = self.get_summary()
+        
+        dashboard = """
+Enrolled nodes:
+{nodes_info}
+
+
+Current Node Status:
+{nodes_status}
+
+
+Licensing Information:
+{licensing}"""
+
+        node_template = """
+>  {node_name}:
+>    {node_status}: last status change {time_change} ago
+>    Web UI: <{url}/{node_id}>"""
+        
+        nodes_info = []
+        
+        for node in sorted(nodes, key=lambda n: n.name):
+            if node.status == 'Enrolled':
+                nodes_info.append(str.format(node_template, \
+                    node_name=node.name, \
+                    node_status=node.runtime_status.connection_status, \
+                    time_change=self._format_time(\
+                        node.runtime_status.change_delta), \
+                    url=self.url, \
+                    node_id=node.id))
+        
+        nodes_status = str.format("""
+>  Connected: {connected}
+>  Pending: {pending}
+>  Disconnected: {disconnected}""",connected=connected, pending=pending, \
+  disconnected=disconnected)
+        
+        max_devices = sum([e.features.nodes for e in entitlements \
+            if e.features.maintenance >= time.time()])
+        devices = len([n for n in nodes if n.status == 'Enrolled'])
+        expiry_epoch = max([e.features.maintenance for e in entitlements])
+        expiry = time.strftime('%m/%d/%Y', time.localtime(expiry_epoch))
+        status = 'In Compliance' if devices <= max_devices \
+            and expiry_epoch >= time.time() else 'Not in Compliance'
+        
+        licensing = str.format("""
+>  Number of Installed Licenses: {installed}
+>  Number of Supported Devices: {devices} / {max_devices}
+>  Expiry Date: {expiry}
+>  Status: {status}""", installed=len(licenses), devices=devices, \
+  max_devices=max_devices, expiry=expiry,  status=status)
+        
+        return str.format(dashboard, nodes_info='\n'.join(nodes_info), \
+            nodes_status=nodes_status, licensing=licensing)
+            
+    def _format_time(self, time_sec):
+        """formats properly a time in seconds for the highest time unit as
+        possible
+        
+        :time_sec a time interval in seconds
+        """
+        sec = timedelta(seconds=time_sec)
+        d = datetime(1,1,1) + sec
+        if d.day-1 > 0:
+            return '%d days' % (d.day-1)
+        elif d.hour > 0:
+            return '%d hours' % d.hour
+        elif d.minute > 0:
+            return '%d minutes' % d.minute
+        return '%d seconds' % d.second
+        
 class OgLhSlackBot:
     """A Bot for dealing with the Opengear Lighthouse API straight from Slack
     terminal.
@@ -282,6 +422,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         self.poll_interval = 1
 
         self.func_intents = { \
+            self._get_monitor : { 'monitor', 'dashboard' }, \
             self._get_port_ssh : { 'ssh', 'sshlink' }, \
             self._get_port_web : { 'web', 'webterm', 'weblink' }, \
             self._get_port : { 'con', 'console', 'gimme' }, \
@@ -293,6 +434,9 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             self._check_pending : { 'pending' }, \
             self._approve_nodes: { 'approve', 'okay', 'approve', 'admin' }, \
             self._delete_nodes: { 'delete', 'kill', 'delete', 'admin' }, \
+            self._smart_groups: { 'smart', 'smartgroups' }, \
+            self._smart_group_nodes: { 'smart-nodes', 'smartgroup-nodes', \
+                'smartgroupnodes' }, \
         }
 
         if not self.slack_client.rtm_connect():
@@ -496,6 +640,10 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             action, _, scope = re.sub('\s+', ' ', command).partition(' ')
             action = action.lower()
             scope = scope.strip()
+            
+            action_type = 'simple' if action in ['get','find','list'] \
+                else 'complex'
+                
             if action in ['update', 'set', 'delete', 'create'] \
                 and channel != self.admin_channel:
                 return "Actions other than `get`, `find` and `list` " + \
@@ -505,26 +653,58 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 params=[]
                 chain = []
                 main_parts = []
+                
+                object_type = None
+                object_name = None
+                parent_type = None
+                parent_name = None
+                parent_id = None
 
                 if 'from' in scope:
                     objects = scope.split('from')
                     main_parts = objects[0].strip().split(' ')
                     parent_parts = objects[1].strip().split(' ')
-                    chain.append(self._dummy_plural(parent_parts[0]))
+                    parent_type = self._dummy_plural(parent_parts[0])
+                    chain.append(parent_type)
                     if len(parent_parts) == 2:
-                        params.append('parent_id="%s"' % parent_parts[1])
+                        parent_name = parent_parts[1]
+                        parent_id = self.client_helper.get_object_id(\
+                            parent_type, parent_name)
+                        params.append('parent_id="%s"' % parent_id)
                 else:
                     main_parts = scope.strip().split(' ')
 
-                chain.append(self._dummy_plural(main_parts[0]) \
-                    if action != 'get' else main_parts[0])
+                object_type = self._dummy_plural(main_parts[0])
+                chain.append(object_type)
+                    
                 if len(main_parts) == 2:
-                    params.append('id="%s"' % main_parts[1])
+                    if action_type == 'simple':
+                        action = 'find'
+                    object_name = main_parts[1]
+                    object_id = self.client_helper.get_object_id(\
+                            object_type, object_name, \
+                            parent_type=parent_type, \
+                            parent_name=parent_name)
+                    params.append('id="%s"' % object_id)
 
                 call_str = 'self.client_helper.client.' + \
                     '{chain}.{action}({params})'
                 r = eval(str.format(call_str, chain='.'.join(chain), \
                     action=action, params=','.join(params)))
+                    
+                if 'error' in r._asdict() and \
+                    'Could not find element' in r.error[0].text:
+                    # lets try to be smart
+                    try:
+                        r2 = eval(str.format(call_str, chain='.'.join(chain), \
+                            action='list', params=','.join(params)))
+                        for o in r2._asdict()[object_type]:
+                            if o.id == object_id:
+                                return self._format_response(action, r2), False
+                    except:
+                        pass
+                    
+                    
                 return self._format_response(action, r), False
         except:
             return self._show_help(), True
@@ -532,14 +712,15 @@ documentation: https://github.com/thiagolcmelo/oglhslack
     # built in functions
 
     def _ports_list_ssh(self, ports, label, username):
-        """
+        """ssh connection strings for devices
+        
         :ports a list of port objects
-        :label not used, only for signature purposes
-        :username
+        :label the label of the port to build the url
+        :username it is the user's slack username
         """
         ssh_urls = []
         for port in ports:
-            if not 'proxied_ssh_url' in port:
+            if not 'proxied_ssh_url' in port._asdict():
                 continue
             ssh_url = re.sub(r'ssh://lhbot', 'ssh://' + username, \
                 port.proxied_ssh_url)
@@ -547,13 +728,14 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         return ssh_urls
 
     def _ports_list_web(self, ports, label):
-        """
-        :ports
-        :label
+        """web urls for devices
+        
+        :ports a list of ports objects
+        :label the label of the port to build the url
         """
         web_urls = []
         for port in ports:
-            if not 'web_terminal_url' in port:
+            if not 'web_terminal_url' in port._asdict():
                 continue
             web_url = self.client_helper.url + '/'
             web_url += port.web_terminal_url
@@ -561,9 +743,10 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         return web_urls
 
     def _get_port_ssh(self, label, username):
-        """
-        :label
-        :username
+        """returns a list of ssh links for a device
+        
+        :label the device label
+        :username the slack username
         """
         ports = self.client_helper.get_ports(label)
         urls = self._ports_list_ssh(ports, label, username)
@@ -572,8 +755,9 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         return '\n'.join(urls)
 
     def _get_port_web(self, label, *_):
-        """
-        :label
+        """ returns a list of web urls for a device
+        
+        :label the device label
         """
         ports = self.client_helper.get_ports(label)
         urls = self._ports_list_web(ports, label)
@@ -583,9 +767,10 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         return '\n'.join(urls)
 
     def _get_port(self, label, username):
-        """
-        :label
-        :username
+        """return all urls ans ssh links for a given device
+        
+        :label the device label
+        :username the slack username
         """
         ports = self.client_helper.get_ports(label)
         ssh_urls = self._ports_list_ssh(ports, label, username)
@@ -697,6 +882,33 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             node_id = self.client_helper.get_node_id(args[0]) or args[0]
             return '<' + self.client_helper.url + '/' + node_id + '>'
         return '<' + self.client_helper.url + '>'
+
+    def _get_monitor(self, *_):
+        """returns a summary similar to the one at the monitor dashboard
+        in the web ui"""
+        return self.client_helper.get_monitor()
+    
+    def _smart_groups(self, *_):
+        """return a list of smartgroups"""
+        smartgroups = self.client_helper.get_smart_groups()
+        if smartgroups:
+            response = self._format_list(smartgroups)
+        else:
+            response = 'No smart groups found'
+        return response
+    
+    def _smart_group_nodes(self, smartgroup, *_):
+        """return a list of nodes belonging to a smartgroup
+        
+        :smartgroup the smart group name
+        """
+        nodes = self.client_helper.get_smart_group_nodes(smartgroup)
+        if nodes:
+            response = self._format_list(nodes)
+        else:
+            response = 'No nodes were found for smart group %s' % smartgroup
+        return response
+        
 
     # formatting functions
 
@@ -896,6 +1108,12 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         """returns a text with instructions about the commands syntax"""
         build_in_commands = [
             {
+                'command': 'monitor',
+                'description': 'Shows a summary information about nodes ' + \
+                    'and licenses.',
+                'alias': 'dashboard'
+            },
+            {
                 'command': 'devices',
                 'description': 'Shows all the managed devices available',
                 'alias': 'ports, labels'
@@ -952,7 +1170,17 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 'description': 'Unenrolls a node or a whitespace separated ' + \
                     'list of nodes (admin only)',
                 'alias': 'kill <node>, delete <node>'
-            }
+            },
+            {
+                'command': 'smartgroups',
+                'description': 'Shows the list of smartgroups',
+                'alias': 'smart'
+            },
+            {
+                'command': 'smartgroup-nodes <smartgroup>',
+                'description': 'Shows the nodes belonging to a smartgroup',
+                'alias': 'smart-nodes, smartgroupnodes'
+            },
         ]
 
         max_command = max([len(c['command']) for c in build_in_commands])
@@ -978,22 +1206,22 @@ documentation: https://github.com/thiagolcmelo/oglhslack
 It is also possible to query objects like:
 ```
 @""" + self.bot_name + """ list nodes
-@""" + self.bot_name + """ find node my-node-id
-@""" + self.bot_name + """ list tags from node my-node-id
+@""" + self.bot_name + """ find node my-node-name
+@""" + self.bot_name + """ list tags from node my-node-name
 ```
 
 Generically:
 ```
 @""" + self.bot_name + """ get <static-object>
 @""" + self.bot_name + """ list <objects>
-@""" + self.bot_name + """ find <object> <object-id>
+@""" + self.bot_name + """ find <object> <object-name>
 
 @""" + self.bot_name + """ get <static-object> from <parent-object> """ + \
-"""<parent-object-id>
+"""<parent-object-name>
 @""" + self.bot_name + """ list <objects> from <parent-object> """ + \
-"""<parent-object-id>
-@""" + self.bot_name + """ find <object> <object-id> from """ + \
-"""<parent-object> <parent-object-id>
+"""<parent-object-name>
+@""" + self.bot_name + """ find <object> <object-name> from """ + \
+"""<parent-object> <parent-object-name>
 ```
 
 For a complete reference, please refer to:
