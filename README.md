@@ -112,7 +112,7 @@ Get objects when **list** and **find** do not apply
 
 Commands that make changes in Lighthouse are not allowed in normal channels or in private messages.
 
-In order to execute such commands, it is required that the Slack administrator creates a channel named **ohlhadmin**, or with the name specified in the `SLACK_BOT_ADMIN_CHANNEL` environment variable. This channel is supposed to be open for authorized members only.
+In order to execute such commands, it is required that the Slack administrator creates a channel named **oglhadmin**, or with the name specified in the `SLACK_BOT_ADMIN_CHANNEL` environment variable. This channel is supposed to be open for authorized members only.
 
 ## Docker image
 

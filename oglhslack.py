@@ -54,6 +54,20 @@ class OgLhClientHelper:
         body = self.client.nodes.list({ 'config:status' : 'Enrolled' })
         return sorted([node.name for node in body.nodes], key=unicode.lower)
 
+    def get_node_id(self, node_name):
+        """
+        :node_name is the friendly name of the node
+
+        Usage:
+
+        >>> node_id = slack_bot.get_node_id('myNodeName')
+        """
+        body = self.client.nodes.list({ 'config:status' : 'Enrolled' })
+        for node in body.nodes:
+            if node.name == node_name:
+                return node.id
+        return None
+
     def get_port_labels(self, node_name):
         """
         Usage:
@@ -192,10 +206,10 @@ class OgLhSlackBot:
 
         self.default_log_channel = os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
         self.admin_channel = os.environ.get('SLACK_BOT_ADMIN_CHANNEL') or 'oglhadmin'
-        
+
         self.slack_client = SlackClient(self.slack_token)
         self.client_helper = OgLhClientHelper()
-        
+
         # the max number of threads is equals to the number of cpus
         self.poll_max_workers = multiprocessing.cpu_count()
         self.semaphores = threading.BoundedSemaphore(value=self.poll_max_workers)
@@ -206,12 +220,12 @@ class OgLhSlackBot:
             self._get_port_web : { 'web', 'webterm', 'weblink' }, \
             self._get_port : { 'con', 'console', 'gimme' }, \
             self._get_port_labels : { 'devices', 'ports', 'labels' }, \
-            self._get_node_summary : { 'sup', 'summary', 'stats', 'status', 'howzit' }, \
+            self._get_node_summary : { 'status', 'summary', 'stats', 'status', 'howzit' }, \
             self._get_web : { 'lighthouse', 'lhweb', 'webui', 'gui' }, \
             self._get_enrolled : { 'nodes', 'enrolled' }, \
             self._check_pending : { 'pending' }, \
-            self._approve_nodes: { 'ok', 'okay', 'approve', 'admin' }, \
-            self._delete_nodes: { 'nuke', 'kill', 'delete', 'admin' }, \
+            self._approve_nodes: { 'approve', 'okay', 'approve', 'admin' }, \
+            self._delete_nodes: { 'delete', 'kill', 'delete', 'admin' }, \
         }
 
         if not self.slack_client.rtm_connect():
@@ -228,6 +242,9 @@ class OgLhSlackBot:
             while True:
                 try:
                     command, channel, user_id = self._read(self.slack_client.rtm_read())
+                except NewConnectionError as nce:
+                    self.slack_client = SlackClient(self.slack_token)
+                    self.client_helper = OgLhClientHelper()
                 except:
                     raise RuntimeError('Slack read failed, please check your token')
 
@@ -248,7 +265,7 @@ class OgLhSlackBot:
 
     def _read(self, output_list):
         """
-        reads slack messages in channels where the bot has access 
+        reads slack messages in channels where the bot has access
         (PM, groups enrolled, etc)
         """
         if output_list and len(output_list) > 0:
@@ -266,7 +283,7 @@ class OgLhSlackBot:
         """
         tries to execute a command received in some of the available channels
         or private messages
-        
+
         it has a semaphore for assuring that no more commands are executed
         simultaneously than the number of cpus
         """
@@ -330,11 +347,11 @@ class OgLhSlackBot:
             if c['id'] == channel_id:
                 return c['name']
         return None
-    
+
     def _get_slack_username(self, user_id):
         """
         returns the friendly username of a user given its id
-        
+
         if the username is not found 'friend' is returned
         """
         if user_id:
@@ -350,10 +367,10 @@ class OgLhSlackBot:
     def _built_in_functions(self, command, channel, username):
         """
         try to parse the :command as one of the built in ones, :channel is used
-        for checking where the command was performed, whether in a 
+        for checking where the command was performed, whether in a
         public/private channel or in a private message, :username is required
         for some of the built in functions
-        
+
         it also prevents from executing admin commands in not authorized channels
         """
         intent, _, scope = command.partition(' ')
@@ -368,7 +385,7 @@ class OgLhSlackBot:
         """
         tries to parse the :command as query, with a proper syntax specified
         at the documentation
-        
+
         it also prevents from executing commands that make changes from
         not authorized channels
         """
@@ -509,7 +526,7 @@ class OgLhSlackBot:
             response = ':warning: There are some nodes waiting for approval.\n'
             response += self._format_list(pending_nodes)
         else:
-            response = ':white_check_mark: No pending node to approve.'
+            response = ':white_check_mark: No pending nodes to approve.'
         return response
 
     def _get_node_summary(self, *_):
@@ -525,10 +542,12 @@ class OgLhSlackBot:
 
         return response
 
-    def _get_web(self, *_):
+    def _get_web(self, *args):
+        if args[0]:
+            node_id = self.client_helper.get_node_id(args[0]) or args[0]
+            return '<' + self.client_helper.url + '/' + node_id + '>'
         return '<' + self.client_helper.url + '>'
 
-    
     # formatting functions
 
     def _sanitise(self, line):
@@ -558,17 +577,15 @@ class OgLhSlackBot:
     def _format_response(self, action, resp):
         """
         formats the message according to the action
-        
+
         for 'list', minimal information is shown, mosly a list of names and/or
         ids
-        
+
         for 'find' or 'get' returns a structured view of the objects properties
         """
         try:
             if 'error' in resp.__dict__.keys() and resp.error[0].text == 'Permission denied':
-                if action == 'find':
-                    return 'Object does not exist or @%s is not allowed to fetch it.' % self.bot_name
-                return '@%s is not allowed execute such an action.' % self.bot_name
+                return 'Object does not exist (please check the id) or @%s is not allowed to fetch it.' % self.bot_name
 
             if action == 'list':
                 object_name = [k for k in resp.__dict__.keys() if k != 'meta'][0]
@@ -606,14 +623,16 @@ class OgLhSlackBot:
         more than 10 items are printed in columns
         """
         if len(raw_list) <= 10:
-            return '\n' + '\n'.join(['> %d. %s' % (i + 1, e) for i, e in enumerate(raw_list)])
+            #return '\n' + '\n'.join(['> %d. %s' % (i + 1, e) for i, e in enumerate(raw_list)])
+            return '\n' + '\n'.join(raw_list)
         max_len = max([len(l) for l in raw_list])
         cols = int (120 / max_len)
         formated_list = ''
         for i, word in enumerate(raw_list):
             if i % cols == 0:
                 formated_list += '\n'
-            formated_list += ('{:3d}. {:' + str(max_len) + 's} ').format((i+1), word)
+            #formated_list += ('{:3d}. {:' + str(max_len) + 's} ').format((i+1), word)
+            formated_list += ('{:' + str(max_len) + 's} ').format(word)
         return textwrap.dedent((list_title + ':' if list_title else '') + """
             ```
             """ + formated_list + """
@@ -657,29 +676,32 @@ class OgLhSlackBot:
         it will log to slack only if there is a specified slack channel for logs
         or if the level is not a simple logging.INFO
         """
-        if self.default_log_channel and self.slack_client \
-            and (self.default_log_channel != self.default_channel \
-            or level > logging.INFO or force_slack):
-            slack_message = message
-            if level > logging.INFO:
-                slack_message = textwrap.dedent("""
-                    @""" + self.bot_name + """  would like you to know:
+        try:
+            if level == logging.CRITICAL:
+                self.logger.critical(message)
+            elif level == logging.ERROR:
+                self.logger.error(message)
+            elif level == logging.WARNING:
+                self.logger.warning(message)
+            else:
+                self.logger.info(message[0:100] + ('...' if len(message) > 100 else ''))
 
-                    > """ + message + """
+            if self.default_log_channel and self.slack_client \
+                and (self.default_log_channel != self.default_channel \
+                or level > logging.INFO or force_slack):
+                slack_message = message
+                if level > logging.INFO:
+                    slack_message = textwrap.dedent("""
+                        @""" + self.bot_name + """  would like you to know:
 
-                    """)
-            self.slack_client.api_call('chat.postMessage', \
-                channel=self.default_log_channel, text=slack_message, as_user=True)
+                        > """ + message + """
 
-        if level == logging.CRITICAL:
-            self.logger.critical(message)
-        elif level == logging.ERROR:
-            self.logger.error(message)
-        elif level == logging.WARNING:
-            self.logger.warning(message)
-        else:
-            self.logger.info(message[0:100] + ('...' if len(message) > 100 else ''))
-    
+                        """)
+                self.slack_client.api_call('chat.postMessage', \
+                    channel=self.default_log_channel, text=slack_message, as_user=True)
+        except:
+            self.logger.error('Error logging: \n' + message)
+
     def _show_help(self, *_):
         """
         returns a text with instructions about the commands syntax
@@ -687,26 +709,26 @@ class OgLhSlackBot:
         build_in_commands = [
             {
                 'command': 'devices',
-                'description': 'Shows all the manageable devices available',
+                'description': 'Shows all the managed devices available',
                 'alias': 'ports, labels'
             },
             {
                 'command': 'ssh <device>',
-                'description': 'Gets a SSH link for manageable Device',
+                'description': 'Gets a SSH link for managed Device',
                 'alias': 'sshlink <device>'
             },
             {
                 'command': 'web <device>',
-                'description': 'Gets a web terminal link for manageable device',
+                'description': 'Gets a web terminal link for managed device',
                 'alias': 'webterm <device>, weblink <device>'
             },
             {
                 'command': 'con <device>',
-                'description': 'Gets both a SSH link and a web terminal link for manageable device',
+                'description': 'Gets both a SSH link and a web terminal link for managed device',
                 'alias': ''
             },
             {
-                'command': 'sup',
+                'command': 'status',
                 'description': 'Shows nodes enrollment summary',
                 'alias': 'console <device>, gimme <device>'
             },
@@ -714,6 +736,11 @@ class OgLhSlackBot:
                 'command': 'gui',
                 'description': 'Gets a link to the Lighthouse web UI',
                 'alias': 'lighthouse, lhweb, webui'
+            },
+            {
+                'command': 'gui <node>',
+                'description': 'Gets a link to the node\'s proxied web UI',
+                'alias': ''
             },
             {
                 'command': 'nodes',
@@ -726,12 +753,12 @@ class OgLhSlackBot:
                 'alias': 'enrolled'
             },
             {
-                'command': 'ok <node>',
+                'command': 'approve <node>',
                 'description': 'Approves a node or a whitespace separated list of nodes (admin only)',
                 'alias': 'okay <node>, approve <node>'
             },
             {
-                'command': 'nuke <node>',
+                'command': 'delete <node>',
                 'description': 'Unenrolls a node or a whitespace separated list of nodes (admin only)',
                 'alias': 'kill <node>, delete <node>'
             }
@@ -740,12 +767,14 @@ class OgLhSlackBot:
         max_command = max([len(c['command']) for c in build_in_commands])
         max_desc = max([len(c['description']) for c in build_in_commands])
         max_alias = max([len(c['alias']) for c in build_in_commands])
-        head_str = '\n%s {:%ds} | {:%ds} | {:%ds}' % (' ' * (len(self.bot_name) + 1), max_command, max_desc, max_alias)
-        line_str = '\n@%s {:%ds} | {:%ds} | {:%ds}' % (self.bot_name, max_command, max_desc, max_alias)
-        help_text = head_str.format('Commands', 'Description', 'Alias')
+        #head_str = '\n%s {:%ds} | {:%ds} | {:%ds}' % (' ' * (len(self.bot_name) + 1), max_command, max_desc, max_alias)
+        #line_str = '\n@%s {:%ds} | {:%ds} | {:%ds}' % (self.bot_name, max_command, max_desc, max_alias)
+        head_str = '\n%s {:%ds} | {:%ds}' % (' ' * (len(self.bot_name) + 1), max_command, max_desc)
+        line_str = '\n@%s {:%ds} | {:%ds}' % (self.bot_name, max_command, max_desc)
+        help_text = head_str.format('Commands', 'Description')
 
         for c in build_in_commands:
-            help_text += line_str.format(c['command'], c['description'], c['alias'])
+            help_text += line_str.format(c['command'], c['description'])
 
         return textwrap.dedent("""
 ```""" + help_text + """
@@ -773,5 +802,9 @@ For a complete reference, please refer to https://github.com/thiagolcmelo/oglhsl
             """)
 
 if __name__ == '__main__':
-    slack_bot = OgLhSlackBot()
-    slack_bot.listen()
+    while True:
+        try:
+            slack_bot = OgLhSlackBot()
+            slack_bot.listen()
+        except NewConnectionError as nce:
+            pass
