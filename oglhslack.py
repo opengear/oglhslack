@@ -413,13 +413,11 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         self.admin_channel = \
             os.environ.get('SLACK_BOT_ADMIN_CHANNEL') or 'oglhadmin'
 
-        self.slack_client = SlackClient(self.slack_token)
-        self.client_helper = OgLhClientHelper()
-
         # the max number of threads is equals to the number of cpus
         self.poll_max = multiprocessing.cpu_count()
         self.semaphores = threading.BoundedSemaphore(value=self.poll_max)
         self.poll_interval = 1
+        self.restart_interval = 15
 
         self.func_intents = { \
             self._get_monitor : { 'monitor', 'dashboard' }, \
@@ -434,49 +432,59 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             self._check_pending : { 'pending' }, \
             self._approve_nodes: { 'approve', 'okay', 'approve', 'admin' }, \
             self._delete_nodes: { 'delete', 'kill', 'delete', 'admin' }, \
-            self._smart_groups: { 'smart', 'smartgroups' }, \
+            self._smart_groups: { 'smart', 'smartgroups', 'smart-groups' }, \
             self._smart_group_nodes: { 'smart-nodes', 'smartgroup-nodes', \
                 'smartgroupnodes' }, \
         }
 
+        self._start_clients()
+
         if not self.slack_client.rtm_connect():
             raise RuntimeError('Slack connection failed')
+            
         self.bod_id = self._get_bot_id()
         self.bot_at = '<@' + self.bod_id + '>'
+    
+    def _start_clients(self):
+        """it starts or restarts slack and lighthouse clients when necessary
+        """
+        try:
+            self.slack_client = SlackClient(self.slack_token)
+            self.client_helper = OgLhClientHelper()
+        except:
+            raise RuntimeError('Slack read failed, ' + \
+                'please check your token')
 
     def listen(self):
         """Listen Slack channels for messages addressed to oglh slack bot"""
-        try:
-            self._logging('Hi there! I am here to help!', force_slack=True)
-            while True:
-                try:
+        while True:
+            try:
+                self._logging('Hi there! I am here to help!', force_slack=True)
+                while True:
                     command, channel, user_id = \
-                        self._read(self.slack_client.rtm_read())
-                except requests.exceptions.ConnectionError:
-                    try:
-                        self.slack_client = SlackClient(self.slack_token)
-                        self.client_helper = OgLhClientHelper()
-                        command, channel, user_id = \
                             self._read(self.slack_client.rtm_read())
-                    except:
-                        raise RuntimeError('Slack read failed, ' + \
-                            'please check your token')
+                    
+                    if command and channel and user_id:
+                        t = threading.Thread(target=self._command, \
+                            args=(command, channel, user_id))
+                        t.setDaemon(True)
+                        t.start()
+                    time.sleep(self.poll_interval)
 
-                if command and channel and user_id:
-                    t = threading.Thread(target=self._command, \
-                        args=(command, channel, user_id))
-                    t.setDaemon(True)
-                    t.start()
+            except KeyboardInterrupt:
+                self._logging('Slack bot was interrupt manually', \
+                    level=logging.WARNING)
+                os.kill(os.getpid(), signal.SIGUSR1)
 
-                time.sleep(self.poll_interval)
-
-        except KeyboardInterrupt:
-            self._logging('Slack bot was interrupt manually', \
-                level=logging.WARNING)
-            os.kill(os.getpid(), signal.SIGUSR1)
-
-        except Exception as error:
-            self._dying_message(str(error))
+            except Exception as error:
+                self.logger.exception(error)
+                self._dying_message(str(error))
+            
+            self._logging('Restarting Bot in %d seconds...' \
+                % self.restart_interval, force_slack=True)
+            time.sleep(self.restart_interval)
+            self._start_clients()
+            
 
     def _read(self, output_list):
         """reads slack messages in channels where the bot has access
@@ -554,7 +562,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 raise RuntimeError('Slack post failed')
 
         except Exception as e:
-            self._logging(str(e), level=logging.ERROR)
+            self._logging(str(e), level=logging.ERROR, error_stack=e)
 
         finally:
             self.semaphores.release()
@@ -639,7 +647,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         try:
             action, _, scope = re.sub('\s+', ' ', command).partition(' ')
             action = action.lower()
-            scope = scope.strip()
+            scope = self._sanitise(scope.strip())
             
             action_type = 'simple' if action in ['get','find','list'] \
                 else 'complex'
@@ -916,10 +924,14 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         """slack messages come with some sort of formatting like:
         <user-id|username>
         <channel-id|channel-name>
+        <url|link-label>
         
         for such cases, it returns the content part:
         <user-id|username> becomes: username
         <channel-id|channel-name> becomes: channel-name
+        <url|link-label> becomes: link-label
+        
+        it is most useful for links, which slack always put in the shape above
         
         :line is a string with a shape like above
         """
@@ -1068,7 +1080,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         self.slack_client.api_call('chat.postMessage', \
             channel=self.default_channel, text=warning_message, as_user=True)
 
-    def _logging(self, message, level=logging.INFO, force_slack=False):
+    def _logging(self, message, level=logging.INFO, force_slack=False,
+        error_stack=None):
         """it will log to slack only if there is a specified slack channel 
         for logs or if the level is not a simple logging.INFO
         
@@ -1077,7 +1090,9 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         force_slack
         """
         try:
-            if level == logging.CRITICAL:
+            if error_stack:
+                self.logger.exception(error_stack)
+            elif level == logging.CRITICAL:
                 self.logger.critical(message)
             elif level == logging.ERROR:
                 self.logger.error(message)
