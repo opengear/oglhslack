@@ -5,7 +5,6 @@ import logging, logging.handlers, yaml
 
 from datetime import datetime, timedelta
 from functools import wraps, partial
-from collections import OrderedDict
 from future.standard_library import install_aliases
 
 from oglhclient import LighthouseApiClient
@@ -22,20 +21,6 @@ class OgLhClientHelper:
         self.pending_name_ids = {}
         _, _ = self.get_pending()
 
-    def get_ports(self, label):
-        """Return all ports along all nodes such that the port's label matches
-        the :label paramater. 
-        
-        :label a port label
-        
-        Usage:
-
-        >>> ports = slack_bot.get_ports('mySoughtLabel')
-        """
-        body = self.client.nodes.list({ 'port:label': label })
-        return [port for node in body.nodes for port in node.ports \
-            if port.label.lower() == label.lower()]
-
     def get_smart_groups(self):
         """returns a list of smartgroups"""
         try:
@@ -50,17 +35,49 @@ class OgLhClientHelper:
         :smartgroup is the smartgroup name
         """
         try:
+            query = self.get_smart_group_query(smartgroup)
+            nodes = self.client.nodes.list(json=query).nodes
+            node_names = [n.name for n in nodes]
+            return sorted(node_names, key=lambda k: k.lower())
+        except:
+            return None
+            
+    def get_smart_group_query(self, smartgroup):
+        """returns the query a smartgroup specified by its name
+        
+        :smartgroup is the name of the smart group
+        """
+        if not smartgroup:
+            return ''
+        try:
             body = self.client.nodes.smartgroups.list()
             for s in body.smartgroups:
                 if s.name.lower() == smartgroup.lower():
-                    nodes = self.client.nodes.list(json=s.query).nodes
-                    node_names = [n.name for n in nodes]
-                    return sorted(node_names, key=lambda k: k.lower())
+                    return s.query
         except:
-            return None
+            return ''
 
-    def get_pending(self):
+    def get_ports(self, label, smartgroup=None):
+        """Return all ports along all nodes such that the port's label matches
+        the :label paramater. 
+        
+        :label a port label
+        :smartgroup if specified, objects will be filtered by smargroup query
+        
+        Usage:
+
+        >>> ports = slack_bot.get_ports('mySoughtLabel')
         """
+        query = self.get_smart_group_query(smartgroup)
+        body = self.client.nodes.list({ 'port:label': label }, json=query)
+        return [port for node in body.nodes for port in node.ports \
+            if port.label.lower() == label.lower()]
+
+    def get_pending(self, smartgroup=None):
+        """a list of names of the pending nodes (waiting for approval)
+        
+        :smartgroup if specified, objects will be filtered by smargroup query
+        
         Usage:
 
         >>> pending_node_names, new_pending = slack_bot.get_pending()
@@ -69,22 +86,29 @@ class OgLhClientHelper:
         @new_pending is True if there is some new pending node since the bot
             was instantiated, and False otherwise
         """
-        body = self.client.nodes.list({ 'config:status' : 'Registered' })
+        query = self.get_smart_group_query(smartgroup)
+        
+        body = self.client.nodes.list(json=query)
         name_ids = { node.name: node.id for node in body.nodes \
             if node.approved == 0 }
         new_pending = (set(name_ids) > set(self.pending_name_ids))
         self.pending_name_ids = name_ids
         return sorted(name_ids, key=lambda k: k.lower()), new_pending
 
-    def get_enrolled(self):
-        """
+    def get_enrolled(self, smartgroup=None):
+        """A list of current enrolled nodes
+        
+        :smartgroup if specified, objects will be filtered by smargroup query
+        
         Usage:
 
         >>> enrolled_node_names = slack_bot.get_enrolled()
 
         @enrolled_node_names is a list of the currently enrolled nodes
         """
-        body = self.client.nodes.list({ 'config:status' : 'Enrolled' })
+        query = self.get_smart_group_query(smartgroup)
+        body = self.client.nodes.list({ 'config:status' : 'Enrolled' }, \
+            json=query)
         return sorted([node.name for node in body.nodes])
 
     def get_node_id(self, node_name):
@@ -102,10 +126,13 @@ class OgLhClientHelper:
                 return node.id
         return None
 
-    def get_port_labels(self, node_name):
-        """Returns all port labels for a given node scified by its id
+    def get_port_labels(self, node_name, smartgroup=None):
+        """Returns all port labels for a given node
         
         :node_name is the friendly name of the node
+        :smartgroup might be used together or instead of :node_name, so that
+        only ports belonging to nodes belonging to the :smartgroup will be
+        listed
         
         Usage:
 
@@ -114,13 +141,20 @@ class OgLhClientHelper:
         @port_labels is a list of port labels for a given node, specified by
             its name
         """
-        if node_name:
-            body = self.client.nodes.list({ 'config:name' : node_name })
-        else:
-            body = self.client.nodes.list()
-            labels = [port.label for node in body.nodes for port \
-                in node.ports if port.mode == 'consoleServer']
-        return sorted(labels)
+        try:
+            query = self.get_smart_group_query(smartgroup)
+            nodes = []
+            if node_name:
+                nodes = self.client.nodes.list({ 'config:name' : node_name }, \
+                    json=query).nodes
+            else:
+                nodes = self.client.nodes.list(json=query).nodes
+            
+            labels = [port.label for node in nodes for port \
+                    in node.ports if port.mode == 'consoleServer']
+            return sorted(labels)
+        except:
+            return None
 
     def get_summary(self):
         """Returns a summary about how many nodes are currently connected,
@@ -297,9 +331,22 @@ class OgLhClientHelper:
         except:
             return object_name
 
-    def get_monitor(self):
-        """builds a report similar to the web ui"""
-        nodes = self.client.nodes.list().nodes
+    def get_monitor(self, max_nodes=None, smartgroup=None):
+        """builds a report similar to the web ui
+        
+        :max_nodes is for limiting the number of nodes displayed
+        :smartgroup is for filtering nodes beloging to this smartgroup
+        """
+        query = self.get_smart_group_query(smartgroup)
+        body = None
+        
+        if max_nodes:
+            body = self.client.nodes.list(page=1, per_page=max_nodes, \
+                json=query)
+        else:
+            body = self.client.nodes.list(json=query)
+        nodes = body.nodes
+        
         licenses = self.client.system.licenses.list().licenses
         entitlements = self.client.system.entitlements.list().entitlements
         connected, pending, disconnected = self.get_summary()
@@ -356,7 +403,129 @@ Licensing Information:
         
         return str.format(dashboard, nodes_info='\n'.join(nodes_info), \
             nodes_status=nodes_status, licensing=licensing)
+
+    def get_node_info(self, node_name, smartgroup=None):
+        """builds a full description of a node
+        :node_name is the node's name
+        """
+        query = self.get_smart_group_query(smartgroup)
+        nodes = self.client.nodes.list(json=query).nodes
+        for node in nodes:
+            if node.name.lower() == node_name.lower():
+                network = ''
+                lan = ''
+                modem = ''
+                for i in node.interfaces:
+                    if i.name == 'Network' and 'ipv4_addr' in i._asdict():
+                        network = i.ipv4_addr
+                    elif i.name == 'Management LAN' \
+                        and 'ipv4_addr' in i._asdict():
+                        lan = i.ipv4_addr
+                    elif i.name == 'Internal Cellular Modem' \
+                        and 'ipv4_addr' in i._asdict():
+                        modem = i.ipv4_addr
+                node_status=node.runtime_status.connection_status
+                time_change=self._format_time(node.runtime_status.change_delta)
+                return str.format("""
+*{node_name}*
+> Connection Status: *{status}*, last status change {change} ago
+> Model: {model}
+> Firmware Version: {firmware}
+> Enrollment Bundle: {bundle}
+> Management VPN Address: {vpn}
+> NET1 MAC address: {mac}
+> Network: {network}
+> Management LAN: {lan}
+> Internal Cellular Modem: {modem}
+> Serial Number: {serial}
+> Access Web UI: <{url}>
+""", model=node.model, firmware=node.firmware_version, \
+    bundle=node.enrollment_bundle, vpn=node.lhvpn_address, \
+    mac=node.mac_address, network=network, lan=lan, modem=modem, \
+    serial=node.serial_number, url='<%s/%s>' % (self.url, node.id), \
+    status=node_status, change=time_change, node_name=node_name)
+        
+        return 'Information not found for node: [%s]' % node
             
+    def get_device_monitor(self, smartgroup=None):
+        """returns a formatted list of devices grouped by node
+        :max_nodes is for limiting the number of nodes displayed
+        :smartgroup is for filtering nodes beloging to this smartgroup
+        """
+        try:
+            query = self.get_smart_group_query(smartgroup)
+            ports = self.client.ports.list(json=query).ports
+            clean_ports = []
+            for p in ports:
+                clean_ports.append({
+                    'name': p.label,
+                    'node_name': p.node_name,
+                    'change': self._format_time(p.runtime_status.change_delta),
+                    'status': p.runtime_status.connection_status,
+                    'web': '<%s/%s>' % (self.url, p.web_terminal_url) \
+                        if 'web_terminal_url' in p._asdict() else '',
+                    'ssh': '<%s>' % p.proxied_ssh_url \
+                        if 'proxied_ssh_url' in p._asdict() else ''
+                })
+            ports = sorted(clean_ports, \
+                key=lambda x: x['node_name'] + x['name'])
+            
+            monitor_template = """
+Devices matching search:
+{devices_list}
+"""
+            device_template = """
+> Node: {node_name}
+> Device: {name}
+> Status: {status}, last status change {change} ago
+> Web Terminal: {web}
+> SSH: {ssh}"""
+            return str.format(monitor_template, devices_list='\n'.join(\
+                [str.format(device_template, **p) for p in ports]))
+        except:
+            return 'Problem listing devices'
+        
+    
+    def get_device_info(self, device, smartgroup):
+        """returns a formatted list of devices that match :device name
+        
+        :device is the device name
+        :smartgroup is for filtering nodes beloging to this smartgroup
+        """
+        try:
+            query = self.get_smart_group_query(smartgroup)
+            ports = self.client.ports.list(json=query).ports
+            clean_ports = []
+            for p in ports:
+                if p.label.lower() == device.lower():
+                    clean_ports.append({
+                        'name': p.label,
+                        'node_name': p.node_name,
+                        'change': self._format_time(p.runtime_status.change_delta),
+                        'status': p.runtime_status.connection_status,
+                        'web': '<%s/%s>' % (self.url, p.web_terminal_url) \
+                            if 'web_terminal_url' in p._asdict() else '',
+                        'ssh': '<%s>' % p.proxied_ssh_url \
+                            if 'proxied_ssh_url' in p._asdict() else ''
+                    })
+            ports = sorted(clean_ports, \
+                key=lambda x: x['node_name'] + x['name'])
+            
+            monitor_template = """
+Devices Monitor:
+{devices_list}
+"""
+            device_template = """
+> Node: {node_name}
+> Device: {name}
+> Status: {status}, last status change {change} ago
+> Web Terminal: {web}
+> SSH: {ssh}"""
+            return str.format(monitor_template, devices_list='\n'.join(\
+                [str.format(device_template, **p) for p in ports]))
+        except:
+            return 'Problem finding device'
+    
     def _format_time(self, time_sec):
         """formats properly a time in seconds for the highest time unit as
         possible
@@ -421,12 +590,16 @@ documentation: https://github.com/thiagolcmelo/oglhslack
 
         self.func_intents = { \
             self._get_monitor : { 'monitor', 'dashboard' }, \
+            self._get_device_monitor : { 'devices-monitor', \
+                'device-monitor' }, \
+            self._device_info : { 'device-info' }, \
             self._get_port_ssh : { 'ssh', 'sshlink' }, \
             self._get_port_web : { 'web', 'webterm', 'weblink' }, \
             self._get_port : { 'con', 'console', 'gimme' }, \
             self._get_port_labels : { 'devices', 'ports', 'labels' }, \
             self._get_node_summary : { 'status', 'summary', 'stats', 'status', \
                 'howzit' }, \
+            self._info : { 'info', 'desc' }, \
             self._get_web : { 'lighthouse', 'lhweb', 'webui', 'gui' }, \
             self._get_enrolled : { 'nodes', 'enrolled' }, \
             self._check_pending : { 'pending' }, \
@@ -434,7 +607,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             self._delete_nodes: { 'delete', 'kill', 'delete', 'admin' }, \
             self._smart_groups: { 'smart', 'smartgroups', 'smart-groups' }, \
             self._smart_group_nodes: { 'smart-nodes', 'smartgroup-nodes', \
-                'smartgroupnodes' }, \
+                'smartgroupnodes', 'smart-group-nodes' }, \
+            self._get_monitor_full : { 'monitor-full', 'dashboard-full' },
         }
 
         self._start_clients()
@@ -484,7 +658,6 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 % self.restart_interval, force_slack=True)
             time.sleep(self.restart_interval)
             self._start_clients()
-            
 
     def _read(self, output_list):
         """reads slack messages in channels where the bot has access
@@ -592,6 +765,15 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         for c in channel_list['channels']:
             if c['id'] == channel_id:
                 return c['name']
+        
+        try:
+            channel_list = self.slack_client.api_call('groups.list')
+        except:
+            raise RuntimeError('Slack private channels list failed')
+        
+        for c in channel_list['groups']:
+            if c['id'] == channel_id:
+                return c['name']
         return None
 
     def _get_slack_username(self, user_id):
@@ -624,10 +806,13 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         authorized channels
         """
         intent, _, scope = command.partition(' ')
+        scope = self._sanitise(scope)
+        
         for func, intents in self.func_intents.items():
             if intent in intents and (channel == self.admin_channel or \
                 not 'admin' in intents):
-                return func(self._sanitise(scope), username)
+                scope, smartgroup = self._split_scope_smartgroup(scope)
+                return func(scope, smartgroup, username)
             elif intent in intents and channel != self.admin_channel \
                 and 'admin' in intents:
                 return "This operation must take place at `%s` channel." % \
@@ -667,6 +852,12 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 parent_type = None
                 parent_name = None
                 parent_id = None
+                
+                if re.match('.*\s+in\s+\w+$', scope):
+                    scope = scope.split(' in ')
+                    query = self.client_helper.get_smart_group_query(scope[1])
+                    params.append('json=\'%s\'' % query)
+                    scope = scope[0]
 
                 if 'from' in scope:
                     objects = scope.split('from')
@@ -683,6 +874,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                     main_parts = scope.strip().split(' ')
 
                 object_type = self._dummy_plural(main_parts[0])
+                if object_type == 'devices':
+                    object_type = 'ports'
                 chain.append(object_type)
                     
                 if len(main_parts) == 2:
@@ -694,7 +887,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                             parent_type=parent_type, \
                             parent_name=parent_name)
                     params.append('id="%s"' % object_id)
-
+                    
                 call_str = 'self.client_helper.client.' + \
                     '{chain}.{action}({params})'
                 r = eval(str.format(call_str, chain='.'.join(chain), \
@@ -750,37 +943,37 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             web_urls.append('<' + web_url + '>')
         return web_urls
 
-    def _get_port_ssh(self, label, username):
+    def _get_port_ssh(self, label, smartgroup, username):
         """returns a list of ssh links for a device
         
         :label the device label
         :username the slack username
         """
-        ports = self.client_helper.get_ports(label)
+        ports = self.client_helper.get_ports(label, smartgroup)
         urls = self._ports_list_ssh(ports, label, username)
         if not urls:
             return ':x: Problem to create ssh link'
         return '\n'.join(urls)
 
-    def _get_port_web(self, label, *_):
+    def _get_port_web(self, label, smartgroup, *_):
         """ returns a list of web urls for a device
         
         :label the device label
         """
-        ports = self.client_helper.get_ports(label)
+        ports = self.client_helper.get_ports(label, smartgroup)
         urls = self._ports_list_web(ports, label)
 
         if not urls:
             return ':x: Problem to create web link.'
         return '\n'.join(urls)
 
-    def _get_port(self, label, username):
+    def _get_port(self, label, smartgroup, username):
         """return all urls ans ssh links for a given device
         
         :label the device label
         :username the slack username
         """
-        ports = self.client_helper.get_ports(label)
+        ports = self.client_helper.get_ports(label, smartgroup)
         ssh_urls = self._ports_list_ssh(ports, label, username)
         web_urls = self._ports_list_web(ports, label)
 
@@ -825,34 +1018,34 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             response.append(status_info + name + '.')
         return self._format_list(response)
 
-    def _get_port_labels(self, node_name, *_):
+    def _get_port_labels(self, node_name, smartgroup, *_):
         """returns a list of ports labels r a given node specified by its name
         :node_name the friendly name of the node for listing ports
         """
-        labels = self.client_helper.get_port_labels(node_name)
+        labels = self.client_helper.get_port_labels(node_name, smartgroup)
         if labels:
             response = self._format_list(labels)
         else:
-            response = 'Nothing to see here'
+            response = 'No devices found'
         return response
 
-    def _get_enrolled(self, *_):
+    def _get_enrolled(self, nodes, smartgroup, *args):
         """return a list of the current nodes connectes or enrolled"""
-        enrolled_nodes = self.client_helper.get_enrolled()
+        enrolled_nodes = self.client_helper.get_enrolled(smartgroup)
         if enrolled_nodes:
             response = self._format_list(enrolled_nodes)
         else:
             response = 'No created node.'
         return response
 
-    def _check_pending(self, new_only, *_):
+    def _check_pending(self, new_only, smartgroup, *_):
         """check whether there are pending nodes waiting for approval, in such
         a case it returns a list with their names
         
         :new_only is a boolean for indicating that only nodes waiting for
         approval that appeared after the last check should be returned
         """
-        pending_nodes, new_pending = self.client_helper.get_pending()
+        pending_nodes, new_pending = self.client_helper.get_pending(smartgroup)
 
         if not new_pending and new_only:
             return None
@@ -891,10 +1084,31 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             return '<' + self.client_helper.url + '/' + node_id + '>'
         return '<' + self.client_helper.url + '>'
 
-    def _get_monitor(self, *_):
+    def _get_monitor(self, scope, smartgroup, *_):
         """returns a summary similar to the one at the monitor dashboard
-        in the web ui"""
-        return self.client_helper.get_monitor()
+        in the web ui, max 10 nodes
+        
+        :scope is never used
+        :smartgroup is used for filtering nodes belonging to this smartgroup
+        
+        """
+        try:
+            return self.client_helper.get_monitor(max_nodes=10, \
+                smartgroup=smartgroup)
+        except:
+            return 'Problem listing nodes'
+        
+    def _get_monitor_full(self, scope, smartgroup, *_):
+        """returns a summary similar to the one at the monitor dashboard
+        in the web ui
+        
+        :scope is never used
+        :smartgroup is used for filtering nodes belonging to this smartgroup
+        """
+        try:
+            return self.client_helper.get_monitor(smartgroup=smartgroup)
+        except:
+            return 'Problem listing nodes'
     
     def _smart_groups(self, *_):
         """return a list of smartgroups"""
@@ -917,6 +1131,29 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             response = 'No nodes were found for smart group %s' % smartgroup
         return response
         
+    def _info(self, node, *_):
+        """displays a detailed description of a node
+        
+        :node is the node's name
+        """
+        return self.client_helper.get_node_info(node)
+    
+    def _get_device_monitor(self, scope, smartgroup, *_):
+        """shows a list of devides, grouped by node
+        
+        :scope is never used
+        :smartgroup is used for filtering nodes belonging to this smartgroup
+        """
+        return self.client_helper.get_device_monitor(smartgroup)
+    
+    def _device_info(self, device, smartgroup, *_):
+        """shows the description of a device, if more than one device is found
+        with this name, they will be listed according to their nodes
+        
+        :device the devices name
+        :smartgroup is used for filtering nodes belonging to this smartgroup
+        """
+        return self.client_helper.get_device_info(device, smartgroup)
 
     # formatting functions
 
@@ -1025,14 +1262,14 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             #    for i, e in enumerate(raw_list)])
             return '\n' + '\n'.join(raw_list)
         max_len = max([len(l) for l in raw_list])
-        cols = int (120 / max_len)
+        cols = int (100 / max_len)
         formated_list = ''
         for i, word in enumerate(raw_list):
             if i % cols == 0:
                 formated_list += '\n'
             #formated_list += ('{:3d}. {:' + str(max_len) + 's} '\
             #    ).format((i+1), word)
-            formated_list += ('{:' + str(max_len) + 's} ').format(word)
+            formated_list += ('{:' + str(max_len) + 's} | ').format(word)
         return textwrap.dedent((list_title + ':' if list_title else '') + """
             ```
             """ + formated_list + """
@@ -1061,6 +1298,16 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             except Exception as e:
                 response += '\n' + " " * level + "%s -> %s" % (key, value)
         return response
+    
+    def _split_scope_smartgroup(self, scope):
+        """removes the smartgroup from a command's scope
+        
+        :scope is the scope of a command, its parameter
+        """
+        smartgroup = None
+        if re.match('.*in\s+\w+$', scope):
+            scope, smartgroup = scope.split('in ')
+        return scope.strip(), smartgroup and smartgroup.strip()
 
     def _dying_message(self, message):
         """it is final message for the default slack channel and for the log
@@ -1125,34 +1372,56 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             {
                 'command': 'monitor',
                 'description': 'Shows a summary information about nodes ' + \
-                    'and licenses.',
+                    'and licenses (displays only first 10 nodes) (SG).',
                 'alias': 'dashboard'
             },
+#            {
+#                'command': 'monitor-full',
+#                'description': 'Shows a summary information about nodes ' + \
+#                    'and licenses (displays all nodes) (SG).',
+#                'alias': 'dashboard'
+#            },
+#            {
+#                'command': 'devices-monitor',
+#                'description': 'Shows a list of devices grouped by node (SG).',
+#                'alias': 'device-monitor'
+#            },
             {
                 'command': 'devices',
-                'description': 'Shows all the managed devices available',
+                'description': 'Shows all the managed devices available (SG)',
                 'alias': 'ports, labels'
             },
             {
+                'command': 'device-info <device>',
+                'description': 'Shows the description of a device (SG)',
+                'alias': ''
+            },
+            {
                 'command': 'ssh <device>',
-                'description': 'Gets a SSH link for managed Device',
+                'description': 'Gets a SSH link for managed Device (SG)',
                 'alias': 'sshlink <device>'
             },
             {
                 'command': 'web <device>',
-                'description': 'Gets a web terminal link for managed device',
+                'description': 'Gets a web terminal link for managed ' + \
+                    'device (SG)',
                 'alias': 'webterm <device>, weblink <device>'
             },
             {
                 'command': 'con <device>',
                 'description': 'Gets both a SSH link and a web terminal ' + \
-                    'link for managed device',
+                    'link for managed device (SG)',
                 'alias': ''
             },
             {
                 'command': 'status',
                 'description': 'Shows nodes enrollment summary',
                 'alias': 'console <device>, gimme <device>'
+            },
+            {
+                'command': 'info <node>',
+                'description': 'Shows the node\'s description',
+                'alias': 'desc <node>'
             },
             {
                 'command': 'gui',
@@ -1166,12 +1435,12 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             },
             {
                 'command': 'nodes',
-                'description': 'Shows enrolled nodes',
+                'description': 'Shows enrolled nodes (SG)',
                 'alias': 'summary, stats, status, howzit'
             },
             {
                 'command': 'pending',
-                'description': 'Shows nodes awaiting approval',
+                'description': 'Shows nodes awaiting approval (SG)',
                 'alias': 'enrolled'
             },
             {
@@ -1187,12 +1456,12 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 'alias': 'kill <node>, delete <node>'
             },
             {
-                'command': 'smartgroups',
+                'command': 'smart-groups',
                 'description': 'Shows the list of smartgroups',
                 'alias': 'smart'
             },
             {
-                'command': 'smartgroup-nodes <smartgroup>',
+                'command': 'smart-group-nodes <smartgroup>',
                 'description': 'Shows the nodes belonging to a smartgroup',
                 'alias': 'smart-nodes, smartgroupnodes'
             },
@@ -1216,6 +1485,14 @@ documentation: https://github.com/thiagolcmelo/oglhslack
 
         return textwrap.dedent("""
 ```""" + help_text + """
+```
+
+In the list of commands above (same holding for those bellow), those """ + \
+"""with *(SG)* can be followed by `in MySmartGroup`, for instance:
+
+```
+@""" + self.bot_name + """ nodes in MySmartGroup """ + \
+"""(same as @mybot smart-group-nodes MySmartGroup)
 ```
 
 It is also possible to query objects like:
