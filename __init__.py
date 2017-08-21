@@ -5,4 +5,4 @@
 # > from oglhslack import OgLhSlackBot
 # > bot = OgLhSlackBot()
 # > bot.listen()
-from .oglhslack import OgLhSlackBot, OgLhClientHelper
+from .oglhslack import OgLhSlackBot, OgLhClientHelper, LighhouseError
