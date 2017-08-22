@@ -1,8 +1,8 @@
 # Lighthouse API client
 
-This project provides a ready to go implementation of the [Lighthouse API Client](https://github.com/thiagolcmelo/oglhclient) as a Slack Bot.
+This project provides a ready to go implementation of the [Lighthouse API Client](https://github.com/opengeardev/oglhclient) as a Slack Bot.
 
-It has also a [Docker image](https://hub.docker.com/r/thiagolcmelo/oglhslack/) for launching the slack bot in minutes.
+It has also a [Docker image](https://hub.docker.com/r/opengeardev/oglhslack/) for launching the slack bot in minutes.
 
 ## Authentication
 
@@ -52,7 +52,7 @@ Some commands have **(admin only)** on theirs descriptions, indicating that they
 
 ### API client commands
 
-This commands follow the [Lighthouse API Client](https://github.com/thiagolcmelo/oglhclient) conventions.
+This commands follow the [Lighthouse API Client](https://github.com/opengeardev/oglhclient) conventions.
 
 For listing objects like `nodes` it is possible to perform:
 
@@ -116,7 +116,7 @@ In order to execute such commands, it is required that the Slack administrator c
 
 ## Docker image
 
-The Opengear Lighthouse docker image is available at https://hub.docker.com/r/thiagolcmelo/oglhslack/.
+The Opengear Lighthouse docker image is available at https://hub.docker.com/r/opengeardev/oglhslack/.
 
 It requires a file containing the environment variables as specified [here](https://docs.docker.com/engine/reference/commandline/run/#set-environment-variables--e-env-env-file).
 
@@ -136,5 +136,5 @@ OGLH_API_URL=https://oglh-octo.opengear.com
 For launching the Slack bot just run:
 
 ```bash
-$ sudo docker run --env-file /path/to/my/env.list thiagolcmelo/oglhslack
+$ sudo docker run --env-file /path/to/my/env.list opengeardev/oglhslack
 ```
