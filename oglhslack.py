@@ -12,11 +12,11 @@ from slackclient import SlackClient
 
 install_aliases()
 
-class LighhouseError(Exception):
-    pass
+class LighthouseError(Exception):
+    def __init__(self,*args,**kwargs):
+        Exception.__init__(self,*args,**kwargs)
 
 class OgLhClientHelper:
-
     def __init__(self):
         self.lh_api = LighthouseApiClient()
         self.url = self.lh_api.url
@@ -29,9 +29,9 @@ class OgLhClientHelper:
         try:
             body = self.client.nodes.smartgroups.list()
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
             return sorted([s.name for s in body.smartgroups])
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return None
@@ -45,11 +45,11 @@ class OgLhClientHelper:
             query = self.get_smart_group_query(smartgroup)
             body = self.client.nodes.list(json=query)
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
             nodes = body.nodes
             node_names = [n.name for n in nodes]
             return sorted(node_names, key=lambda k: k.lower())
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return None
@@ -64,12 +64,12 @@ class OgLhClientHelper:
         try:
             body = self.client.nodes.smartgroups.list()
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
                 
             for s in body.smartgroups:
                 if s.name.lower() == smartgroup.lower():
                     return s.query
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return ''
@@ -88,7 +88,7 @@ class OgLhClientHelper:
         query = self.get_smart_group_query(smartgroup)
         body = self.client.nodes.list({ 'port:label': label }, json=query)
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
                 
         return [port for node in body.nodes for port in node.ports \
             if port.label.lower() == label.lower()]
@@ -110,7 +110,7 @@ class OgLhClientHelper:
         
         body = self.client.nodes.list(json=query)
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
         
         name_ids = { node.name: node.id for node in body.nodes \
             if node.approved == 0 }
@@ -133,8 +133,32 @@ class OgLhClientHelper:
         body = self.client.nodes.list({ 'config:status' : 'Enrolled' }, \
             json=query)
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
         return sorted([node.name for node in body.nodes])
+
+    def list_devices(self, node_name=None, smartgroup=None):
+        """return a list of devices belonging to a node
+        :node_name is the node's name
+        :smartgroup is also optional
+        """
+        try:
+            body = self.client.ports.list()
+            if 'error' in body._asdict():
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            ports = []
+            for port in body.ports:
+                if port.node_name == node_name:
+                    ports.append(port.label)
+            if len(ports) == 0:
+                return ['no devices found for node %s' % node_name]
+            return ports
+        except LighthouseError as error:
+            raise error
+        except:
+            pass
+        return []
+            
+        
 
     def get_node_id(self, node_name):
         """Returns the node id given its name
@@ -148,11 +172,11 @@ class OgLhClientHelper:
         try:
             body = self.client.nodes.list({ 'config:status' : 'Enrolled' })
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
             for node in body.nodes:
                 if node.name == node_name:
                     return node.id
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             pass
@@ -183,13 +207,13 @@ class OgLhClientHelper:
                 body = self.client.nodes.list(json=query)
             
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
                 
             nodes = body.nodes
             labels = [port.label for node in nodes for port \
                     in node.ports if port.mode == 'consoleServer']
             return sorted(labels)
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return None
@@ -208,7 +232,7 @@ class OgLhClientHelper:
         """
         body = self.client.stats.nodes.connection_summary.get()
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
         
         for conn in body.connectionSummary:
             if conn.status == 'connected':
@@ -235,7 +259,7 @@ class OgLhClientHelper:
         """
         body = self.client.nodes.list()
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
         
         deleted_names = []
         errors = []
@@ -267,7 +291,7 @@ class OgLhClientHelper:
         """
         body = self.client.nodes.list({ 'config:status' : 'Registered' })
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
             
         approved_names = []
         errors = []
@@ -299,9 +323,9 @@ class OgLhClientHelper:
         try:
             body = self.client.system.licenses.list()
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
             return body.licenses
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return None
@@ -311,9 +335,9 @@ class OgLhClientHelper:
         try:
             body = self.client.system.entitlements.list()
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
             return body.entitlements
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return None
@@ -326,7 +350,7 @@ class OgLhClientHelper:
                 if len(l.raw) > 0:
                     return False
             raise
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return True
@@ -338,7 +362,7 @@ class OgLhClientHelper:
             entitlements = self.get_entitlements()
             body = self.client.nodes.list()
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
             
             nodes_count = len(body.nodes)
             is_valid = False
@@ -350,7 +374,7 @@ class OgLhClientHelper:
                     is_valid |= (time.time() <= int(e.features.maintenance) \
                         and int(e.features.nodes) >= nodes_count)
             return is_valid
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return False
@@ -382,7 +406,7 @@ class OgLhClientHelper:
             r = eval(str.format(call_str, chain='.'.join(chain), \
                 params=','.join(params)))
             if 'error' in r._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
             
             for o in r._asdict()[object_type]:
                 obj_label = ''
@@ -393,7 +417,7 @@ class OgLhClientHelper:
             
                 if o._asdict()[obj_label] == object_name:
                     return o.id
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return object_name
@@ -413,18 +437,18 @@ class OgLhClientHelper:
         else:
             body = self.client.nodes.list(json=query)
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
             
         nodes = body.nodes
         
         body = self.client.system.licenses.list()
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
         licenses = body.licenses
         
         body = self.client.system.entitlements.list()
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
         entitlements = body.entitlements
         
         connected, pending, disconnected = self.get_summary()
@@ -489,7 +513,7 @@ Licensing Information:
         query = self.get_smart_group_query(smartgroup)
         body = self.client.nodes.list(json=query)
         if 'error' in body._asdict():
-            raise LighhouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % error[0].text)
         nodes = body.nodes
         
         for node in nodes:
@@ -538,7 +562,7 @@ Licensing Information:
             query = self.get_smart_group_query(smartgroup)
             body = self.client.ports.list(json=query)
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
                 
             ports = body.ports
             clean_ports = []
@@ -569,7 +593,7 @@ Devices matching search:
             return str.format(monitor_template, devices_list='\n'.join(\
                 [str.format(device_template, **p) for p in ports]))
                 
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return 'Problem listing devices'
@@ -585,7 +609,7 @@ Devices matching search:
             query = self.get_smart_group_query(smartgroup)
             body = self.client.ports.list(json=query)
             if 'error' in body._asdict():
-                raise LighhouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % error[0].text)
             ports = body.ports
             
             clean_ports = []
@@ -616,7 +640,7 @@ Devices Monitor:
 > SSH: {ssh}"""
             return str.format(monitor_template, devices_list='\n'.join(\
                 [str.format(device_template, **p) for p in ports]))
-        except LighhouseError as error:
+        except LighthouseError as error:
             raise error
         except:
             return 'Problem finding device'
@@ -729,10 +753,14 @@ documentation: https://github.com/thiagolcmelo/oglhslack
 
     def listen(self):
         """Listen Slack channels for messages addressed to oglh slack bot"""
+        launching=True
         while True:
             try:
                 try:
-                    self._logging('Hi there! I am here to help!', force_slack=True)
+                    if launching:
+                        self._logging('Hi there! I am here to help!', \
+                            force_slack=True)
+                        launching = False
                     
                     while True:
                         command, channel, user_id = \
@@ -830,6 +858,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             except LighthouseError as error:
                 output = str(error)
             except Exception as ie:
+                
                 raise ie
 
             response += output
@@ -961,10 +990,12 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 parent_type = None
                 parent_name = None
                 parent_id = None
+                smartgroup = None
                 
                 if re.match('.*\s+in\s+\w+$', scope):
                     scope = scope.split(' in ')
-                    query = self.client_helper.get_smart_group_query(scope[1])
+                    smartgroup = scope[1]
+                    query = self.client_helper.get_smart_group_query(smartgroup)
                     params.append('json=\'%s\'' % query)
                     scope = scope[0]
 
@@ -996,6 +1027,13 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                             parent_type=parent_type, \
                             parent_name=parent_name)
                     params.append('id="%s"' % object_id)
+                
+                if object_type in ['devices', 'ports'] and \
+                    parent_type == 'nodes' and action == 'list' and \
+                    parent_id:
+                    return self._format_list(\
+                        self.client_helper.list_devices(node_name=parent_name, \
+                            smartgroup=smartgroup)), False
                     
                 call_str = 'self.client_helper.client.' + \
                     '{chain}.{action}({params})'
@@ -1013,7 +1051,6 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                                 return self._format_response(action, r2), False
                     except:
                         pass
-                    
                     
                 return self._format_response(action, r), False
         except:
