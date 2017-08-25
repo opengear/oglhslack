@@ -12,6 +12,33 @@ from slackclient import SlackClient
 
 install_aliases()
 
+
+def retry(tries=5, delay=3, backoff=2, logger=None):
+    """Retry calling the decorated function using an exponential backoff.
+
+    http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
+    original from: http://wiki.python.org/moin/PythonDecoratorLibrary#Retry
+
+    :tries number of times to try (not retry) before giving up
+    :delay initial delay between retries in seconds
+    :backoff backoff multiplier e.g. value of 2 will double the delay each retry
+    :logger logger to use. If None, print
+    """
+    def deco_retry(f):
+        @wraps(f)
+        def f_retry(*args, **kwargs):
+            mtries, mdelay = tries, delay
+            while mtries > 1:
+                try:
+                    return f(*args, **kwargs)
+                except:
+                    time.sleep(mdelay)
+                    mtries -= 1
+                    mdelay *= backoff
+            return f(*args, **kwargs)
+        return f_retry
+    return deco_retry
+
 class LighthouseError(Exception):
     def __init__(self,*args,**kwargs):
         Exception.__init__(self,*args,**kwargs)
@@ -22,14 +49,15 @@ class OgLhClientHelper:
         self.url = self.lh_api.url
         self.client = self.lh_api.get_client()
         self.pending_name_ids = {}
-        _, _ = self.get_pending()
+        #_, _ = self.get_pending()
 
     def get_smart_groups(self):
         """returns a list of smartgroups"""
         try:
             body = self.client.nodes.smartgroups.list()
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
             return sorted([s.name for s in body.smartgroups])
         except LighthouseError as error:
             raise error
@@ -45,7 +73,8 @@ class OgLhClientHelper:
             query = self.get_smart_group_query(smartgroup)
             body = self.client.nodes.list(json=query)
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
             nodes = body.nodes
             node_names = [n.name for n in nodes]
             return sorted(node_names, key=lambda k: k.lower())
@@ -64,7 +93,8 @@ class OgLhClientHelper:
         try:
             body = self.client.nodes.smartgroups.list()
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
                 
             for s in body.smartgroups:
                 if s.name.lower() == smartgroup.lower():
@@ -88,7 +118,7 @@ class OgLhClientHelper:
         query = self.get_smart_group_query(smartgroup)
         body = self.client.nodes.list({ 'port:label': label }, json=query)
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
                 
         return [port for node in body.nodes for port in node.ports \
             if port.label.lower() == label.lower()]
@@ -110,11 +140,13 @@ class OgLhClientHelper:
         
         body = self.client.nodes.list(json=query)
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         
         name_ids = { node.name: node.id for node in body.nodes \
             if node.approved == 0 }
-        new_pending = (set(name_ids) > set(self.pending_name_ids))
+        #new_pending = (set(name_ids) > set(self.pending_name_ids))
+        new_pending = len([k for k,_ in name_ids.items() \
+            if not k in self.pending_name_ids.keys()]) > 0
         self.pending_name_ids = name_ids
         return sorted(name_ids, key=lambda k: k.lower()), new_pending
 
@@ -133,32 +165,8 @@ class OgLhClientHelper:
         body = self.client.nodes.list({ 'config:status' : 'Enrolled' }, \
             json=query)
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         return sorted([node.name for node in body.nodes])
-
-    def list_devices(self, node_name=None, smartgroup=None):
-        """return a list of devices belonging to a node
-        :node_name is the node's name
-        :smartgroup is also optional
-        """
-        try:
-            body = self.client.ports.list()
-            if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
-            ports = []
-            for port in body.ports:
-                if port.node_name == node_name:
-                    ports.append(port.label)
-            if len(ports) == 0:
-                return ['no devices found for node %s' % node_name]
-            return ports
-        except LighthouseError as error:
-            raise error
-        except:
-            pass
-        return []
-            
-        
 
     def get_node_id(self, node_name):
         """Returns the node id given its name
@@ -172,7 +180,8 @@ class OgLhClientHelper:
         try:
             body = self.client.nodes.list({ 'config:status' : 'Enrolled' })
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
             for node in body.nodes:
                 if node.name == node_name:
                     return node.id
@@ -200,6 +209,7 @@ class OgLhClientHelper:
         try:
             query = self.get_smart_group_query(smartgroup)
             nodes = []
+            
             if node_name:
                 body = self.client.nodes.list({ 'config:name' : node_name }, \
                     json=query)
@@ -207,11 +217,15 @@ class OgLhClientHelper:
                 body = self.client.nodes.list(json=query)
             
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
                 
             nodes = body.nodes
+            #labels = [port.label for node in nodes for port \
+            #        in node.ports if port.mode == 'consoleServer']
             labels = [port.label for node in nodes for port \
-                    in node.ports if port.mode == 'consoleServer']
+                in node.ports if \
+                (port.node_name.lower() == node_name.lower() or not node_name)]
             return sorted(labels)
         except LighthouseError as error:
             raise error
@@ -232,7 +246,7 @@ class OgLhClientHelper:
         """
         body = self.client.stats.nodes.connection_summary.get()
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         
         for conn in body.connectionSummary:
             if conn.status == 'connected':
@@ -259,7 +273,7 @@ class OgLhClientHelper:
         """
         body = self.client.nodes.list()
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         
         deleted_names = []
         errors = []
@@ -291,7 +305,7 @@ class OgLhClientHelper:
         """
         body = self.client.nodes.list({ 'config:status' : 'Registered' })
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
             
         approved_names = []
         errors = []
@@ -323,7 +337,8 @@ class OgLhClientHelper:
         try:
             body = self.client.system.licenses.list()
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
             return body.licenses
         except LighthouseError as error:
             raise error
@@ -335,7 +350,8 @@ class OgLhClientHelper:
         try:
             body = self.client.system.entitlements.list()
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
             return body.entitlements
         except LighthouseError as error:
             raise error
@@ -362,7 +378,8 @@ class OgLhClientHelper:
             entitlements = self.get_entitlements()
             body = self.client.nodes.list()
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
             
             nodes_count = len(body.nodes)
             is_valid = False
@@ -406,7 +423,7 @@ class OgLhClientHelper:
             r = eval(str.format(call_str, chain='.'.join(chain), \
                 params=','.join(params)))
             if 'error' in r._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' % r.error[0].text)
             
             for o in r._asdict()[object_type]:
                 obj_label = ''
@@ -422,42 +439,27 @@ class OgLhClientHelper:
         except:
             return object_name
 
-    def get_monitor(self, max_nodes=None, smartgroup=None):
-        """builds a report similar to the web ui
-        
-        :max_nodes is for limiting the number of nodes displayed
-        :smartgroup is for filtering nodes beloging to this smartgroup
-        """
-        query = self.get_smart_group_query(smartgroup)
-        body = None
-        
-        if max_nodes:
-            body = self.client.nodes.list(page=1, per_page=max_nodes, \
-                json=query)
-        else:
-            body = self.client.nodes.list(json=query)
+    def get_monitor(self):
+        """builds a report similar to the web ui"""
+        body = self.client.nodes.list()
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
             
         nodes = body.nodes
         
         body = self.client.system.licenses.list()
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         licenses = body.licenses
         
         body = self.client.system.entitlements.list()
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         entitlements = body.entitlements
         
         connected, pending, disconnected = self.get_summary()
         
         dashboard = """
-Enrolled nodes:
-{nodes_info}
-
-
 Current Node Status:
 {nodes_status}
 
@@ -503,8 +505,8 @@ Licensing Information:
 >  Status: {status}""", installed=len(licenses), devices=devices, \
   max_devices=max_devices, expiry=expiry,  status=status)
         
-        return str.format(dashboard, nodes_info='\n'.join(nodes_info), \
-            nodes_status=nodes_status, licensing=licensing)
+        return str.format(dashboard, nodes_status=nodes_status, \
+            licensing=licensing)
 
     def get_node_info(self, node_name, smartgroup=None):
         """builds a full description of a node
@@ -513,7 +515,7 @@ Licensing Information:
         query = self.get_smart_group_query(smartgroup)
         body = self.client.nodes.list(json=query)
         if 'error' in body._asdict():
-            raise LighthouseError('Lighthouse says: %s' % error[0].text)
+            raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         nodes = body.nodes
         
         for node in nodes:
@@ -552,52 +554,6 @@ Licensing Information:
     status=node_status, change=time_change, node_name=node_name)
         
         return 'Information not found for node: [%s]' % node
-            
-    def get_device_monitor(self, smartgroup=None):
-        """returns a formatted list of devices grouped by node
-        :max_nodes is for limiting the number of nodes displayed
-        :smartgroup is for filtering nodes beloging to this smartgroup
-        """
-        try:
-            query = self.get_smart_group_query(smartgroup)
-            body = self.client.ports.list(json=query)
-            if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
-                
-            ports = body.ports
-            clean_ports = []
-            for p in ports:
-                clean_ports.append({
-                    'name': p.label,
-                    'node_name': p.node_name,
-                    'change': self._format_time(p.runtime_status.change_delta),
-                    'status': p.runtime_status.connection_status,
-                    'web': '<%s/%s>' % (self.url, p.web_terminal_url) \
-                        if 'web_terminal_url' in p._asdict() else '',
-                    'ssh': '<%s>' % p.proxied_ssh_url \
-                        if 'proxied_ssh_url' in p._asdict() else ''
-                })
-            ports = sorted(clean_ports, \
-                key=lambda x: x['node_name'] + x['name'])
-            
-            monitor_template = """
-Devices matching search:
-{devices_list}
-"""
-            device_template = """
-> Node: {node_name}
-> Device: {name}
-> Status: {status}, last status change {change} ago
-> Web Terminal: {web}
-> SSH: {ssh}"""
-            return str.format(monitor_template, devices_list='\n'.join(\
-                [str.format(device_template, **p) for p in ports]))
-                
-        except LighthouseError as error:
-            raise error
-        except:
-            return 'Problem listing devices'
-        
     
     def get_device_info(self, device, smartgroup):
         """returns a formatted list of devices that match :device name
@@ -609,7 +565,8 @@ Devices matching search:
             query = self.get_smart_group_query(smartgroup)
             body = self.client.ports.list(json=query)
             if 'error' in body._asdict():
-                raise LighthouseError('Lighthouse says: %s' % error[0].text)
+                raise LighthouseError('Lighthouse says: %s' \
+                    % body.error[0].text)
             ports = body.ports
             
             clean_ports = []
@@ -693,7 +650,7 @@ class OgLhSlackBot:
         if not (self.bot_name and self.default_channel and self.slack_token):
             raise RuntimeError("""
 Some of the required environment variables are not set, please refer to the 
-documentation: https://github.com/thiagolcmelo/oglhslack
+documentation: https://github.com/opengeardev/oglhslack
             """)
 
         self.default_log_channel = \
@@ -705,29 +662,25 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         self.poll_max = multiprocessing.cpu_count()
         self.semaphores = threading.BoundedSemaphore(value=self.poll_max)
         self.poll_interval = 1
+        self.poll_count = 0
         self.restart_interval = 15
 
         self.func_intents = { \
-            self._get_monitor : { 'monitor', 'dashboard' }, \
-            self._get_device_monitor : { 'devices-monitor', \
-                'device-monitor' }, \
-            self._device_info : { 'device-info' }, \
             self._get_port_ssh : { 'ssh', 'sshlink' }, \
             self._get_port_web : { 'web', 'webterm', 'weblink' }, \
             self._get_port : { 'con', 'console', 'gimme' }, \
             self._get_port_labels : { 'devices', 'ports', 'labels' }, \
+            self._device_info : { 'device-info' }, \
             self._get_node_summary : { 'status', 'summary', 'stats', 'status', \
                 'howzit' }, \
-            self._info : { 'info', 'desc' }, \
             self._get_web : { 'lighthouse', 'lhweb', 'webui', 'gui' }, \
             self._get_enrolled : { 'nodes', 'enrolled' }, \
+            self._node_info : { 'node-info', 'node-desc' }, \
             self._check_pending : { 'pending' }, \
             self._approve_nodes: { 'approve', 'okay', 'approve', 'admin' }, \
             self._delete_nodes: { 'delete', 'kill', 'delete', 'admin' }, \
             self._smart_groups: { 'smart', 'smartgroups', 'smart-groups' }, \
-            self._smart_group_nodes: { 'smart-nodes', 'smartgroup-nodes', \
-                'smartgroupnodes', 'smart-group-nodes' }, \
-            self._get_monitor_full : { 'monitor-full', 'dashboard-full' },
+            self._show_advanced_help : { 'advanced', 'advanced-help' },
         }
 
         self._start_clients()
@@ -737,7 +690,9 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             
         self.bod_id = self._get_bot_id()
         self.bot_at = '<@' + self.bod_id + '>'
+        self.admin_channel_id = self._get_channel_id(self.admin_channel)
     
+    @retry(tries=10)
     def _start_clients(self):
         """it starts or restarts slack and lighthouse clients when necessary
         """
@@ -771,6 +726,13 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                                 args=(command, channel, user_id))
                             t.setDaemon(True)
                             t.start()
+                            
+                        if self.poll_count % 10 == 0:
+                            self._command('pending new_only', \
+                                self.admin_channel_id, None)
+                            self.poll_count = 0
+                        
+                        self.poll_count += self.poll_interval
                         time.sleep(self.poll_interval)
 
                 except KeyboardInterrupt:
@@ -782,14 +744,12 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                     self.logger.exception(error)
                     self._dying_message(str(error))
             
-                self._logging('Restarting Bot in %d seconds...' \
+                self._logging('Trying to reconnect Bot in %d seconds...' \
                     % self.restart_interval, force_slack=True)
                 time.sleep(self.restart_interval)
                 self._start_clients()
             except Exception as error:
                 self._logging('Error starting clients: %s' % error)
-                
-                
 
     def _read(self, output_list):
         """reads slack messages in channels where the bot has access
@@ -831,13 +791,14 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             self.semaphores.acquire()
             response = ''
             is_help = False
-
-            username = self._get_slack_username(user_id)
+    
+            username = self._get_slack_username(user_id) \
+                if user_id else 'system'
             channel_name = self._get_channel_name(channel)
-
-            self._logging(str.format('Got command: `{command}`, from: ' + \
-                '{username}', command=command, username=username))
+    
             if user_id:
+                self._logging(str.format('Got command: `{command}`, from: ' + \
+                    '{username}', command=command, username=username))
                 response = '<@' + user_id + '|' + username + '> '
             
             try:
@@ -852,32 +813,38 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 # check whether some of the built in funtions were called    
                 output = self._built_in_functions(command, channel_name, \
                     username)
-                # try the more complex query tool in case of no built in function
-                if not output:
+                # try the more complex query tool in 
+                # case of no built in function
+                if not output and command != 'pending new_only':
                     output, is_help = self._query_tool(command, channel_name)
             except LighthouseError as error:
                 output = str(error)
             except Exception as ie:
-                
                 raise ie
 
-            response += output
-                
-            self._logging('Responding: ' + \
-                (response if not is_help else 'help message'))
-
-            try:
-                self.slack_client.api_call('chat.postMessage', \
-                    channel=channel, text=response, as_user=True)
-            except:
-                raise RuntimeError('Slack post failed')
-
+            if output:
+                response += output                
+                self._logging('Responding: ' + \
+                    (response if not is_help else 'help message'))
+                try:
+                    self.slack_client.api_call('chat.postMessage', \
+                        channel=channel, text=response, as_user=True)
+                except:
+                    raise RuntimeError('Slack post failed')
+                    
         except Exception as e:
             self._logging(str(e), level=logging.ERROR, error_stack=e)
-
+            try:
+                self.slack_client.api_call('chat.postMessage', \
+                    channel=channel, \
+                        text='An error happened, please try again.', \
+                        as_user=True)
+            except:
+                pass
         finally:
             self.semaphores.release()
 
+    @retry(tries=5)
     def _get_bot_id(self):
         """return the slack id for the bot specified at SLACK_BOT_NAME env var
         """
@@ -891,6 +858,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 return member['id']
         raise RuntimeError('User ' + self.bot_name + ' not found')
 
+    @retry(tries=5)
     def _get_channel_name(self, channel_id):
         """returns the friendly name of a channel given its id
         
@@ -913,7 +881,32 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             if c['id'] == channel_id:
                 return c['name']
         return None
+    
+    @retry(tries=5)
+    def _get_channel_id(self, channel_name):
+        """returns the id of a channel given its name
+        
+        :channel_name is the slack id of the sought channel
+        """
+        try:
+            channel_list = self.slack_client.api_call('channels.list')
+        except:
+            raise RuntimeError('Slack channels list failed')
+        for c in channel_list['channels']:
+            if c['name'] == channel_name:
+                return c['id']
+        
+        try:
+            channel_list = self.slack_client.api_call('groups.list')
+        except:
+            raise RuntimeError('Slack private channels list failed')
+        
+        for c in channel_list['groups']:
+            if c['name'] == channel_name:
+                return c['id']
+        return None
 
+    @retry(tries=5)
     def _get_slack_username(self, user_id):
         """returns the friendly username of a user given its id if the username
         is not found 'friend' is returned
@@ -924,7 +917,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             try:
                 info = self.slack_client.api_call('users.info', user=user_id)
             except:
-                raise RuntimeError('Slack user info failed')
+                raise RuntimeError('Error getting Slack\'s username by id')
+                    
             username = info['user']['name']
             if username:
                 return username
@@ -943,7 +937,9 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         WARNING: it also prevents from executing admin commands in not 
         authorized channels
         """
+        command = self._command_on_node(command)
         intent, _, scope = command.partition(' ')
+        
         scope = self._sanitise(scope)
         
         for func, intents in self.func_intents.items():
@@ -1032,7 +1028,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                     parent_type == 'nodes' and action == 'list' and \
                     parent_id:
                     return self._format_list(\
-                        self.client_helper.list_devices(node_name=parent_name, \
+                        self.client_helper.get_port_labels( \
+                            node_name=parent_name, \
                             smartgroup=smartgroup)), False
                     
                 call_str = 'self.client_helper.client.' + \
@@ -1098,7 +1095,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         ports = self.client_helper.get_ports(label, smartgroup)
         urls = self._ports_list_ssh(ports, label, username)
         if not urls:
-            return ':x: Problem to create ssh link'
+            return (':x: Device not found: %s. ' + \
+                'Unable to create ssh link.') % label
         return '\n'.join(urls)
         
     def _get_port_web(self, label, smartgroup, *_):
@@ -1110,7 +1108,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         urls = self._ports_list_web(ports, label)
 
         if not urls:
-            return ':x: Problem to create web link.'
+            return (':x: Device not found: %s. ' + \
+                'Unable to create web link.') % label
         return '\n'.join(urls)
 
     def _get_port(self, label, smartgroup, username):
@@ -1125,8 +1124,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
 
         urls = [ x for t in zip(ssh_urls, web_urls) for x in t ]
         if not urls:
-            return ':x: Device not found. ' + \
-                'Unable to create ssh link and web link.'
+            return (':x: Device not found: %s. ' + \
+                'Unable to create ssh link and web link.') % label
         return '\n'.join(urls)
 
     def _approve_nodes(self, str_names, *_):
@@ -1203,18 +1202,6 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             response = ':white_check_mark: No pending nodes to approve.'
         return response
 
-    def _get_node_summary(self, *_):
-        """returns a status of the current nodes enrolled, pending or deleted
-        """
-        connected, pending, disconnected = self.client_helper.get_summary()
-        if connected == None:
-            return None
-        response = 'Nodes\' status information:\n' \
-            '> Connected: %d\n' \
-            '> Disconnected: %d\n' \
-            '> Pending: %d' % (connected, disconnected, pending)
-        return response
-
     def _get_web(self, *args):
         """returns the general url for the GUI or for a specific node
         
@@ -1227,25 +1214,14 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             return '<' + self.client_helper.url + '/' + node_id + '>'
         return '<' + self.client_helper.url + '>'
 
-    def _get_monitor(self, scope, smartgroup, *_):
+    def _get_node_summary(self, scope, *_):
         """returns a summary similar to the one at the monitor dashboard
-        in the web ui, max 10 nodes
+        in the web ui, without the nodes
         
         :scope is never used
-        :smartgroup is used for filtering nodes belonging to this smartgroup
         
         """
-        return self.client_helper.get_monitor(max_nodes=10, \
-            smartgroup=smartgroup)
-        
-    def _get_monitor_full(self, scope, smartgroup, *_):
-        """returns a summary similar to the one at the monitor dashboard
-        in the web ui
-        
-        :scope is never used
-        :smartgroup is used for filtering nodes belonging to this smartgroup
-        """
-        return self.client_helper.get_monitor(smartgroup=smartgroup)
+        return self.client_helper.get_monitor()
         
     def _smart_groups(self, *_):
         """return a list of smartgroups"""
@@ -1255,33 +1231,13 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         else:
             response = 'No smart groups found'
         return response
-    
-    def _smart_group_nodes(self, smartgroup, *_):
-        """return a list of nodes belonging to a smartgroup
         
-        :smartgroup the smart group name
-        """
-        nodes = self.client_helper.get_smart_group_nodes(smartgroup)
-        if nodes:
-            response = self._format_list(nodes)
-        else:
-            response = 'No nodes were found for smart group %s' % smartgroup
-        return response
-        
-    def _info(self, node, *_):
+    def _node_info(self, node, *_):
         """displays a detailed description of a node
         
         :node is the node's name
         """
         return self.client_helper.get_node_info(node)
-    
-    def _get_device_monitor(self, scope, smartgroup, *_):
-        """shows a list of devides, grouped by node
-        
-        :scope is never used
-        :smartgroup is used for filtering nodes belonging to this smartgroup
-        """
-        return self.client_helper.get_device_monitor(smartgroup)
     
     def _device_info(self, device, smartgroup, *_):
         """shows the description of a device, if more than one device is found
@@ -1291,7 +1247,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         :smartgroup is used for filtering nodes belonging to this smartgroup
         """
         return self.client_helper.get_device_info(device, smartgroup)
-
+    
     # formatting functions
 
     def _sanitise(self, line):
@@ -1445,6 +1401,9 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         if re.match('.*in\s+\w+$', scope):
             scope, smartgroup = scope.split('in ')
         return scope.strip(), smartgroup and smartgroup.strip()
+    
+    def _command_on_node(self, command):
+        return re.sub('devices\s+on\s+', 'devices ', command) 
 
     def _dying_message(self, message):
         """it is final message for the default slack channel and for the log
@@ -1462,7 +1421,7 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             """)
         self.slack_client = SlackClient(self.slack_token)
         self.slack_client.api_call('chat.postMessage', \
-            channel=self.default_channel, text=warning_message, as_user=True)
+            channel=self.admin_channel, text=warning_message, as_user=True)
 
     def _logging(self, message, level=logging.INFO, force_slack=False,
         error_stack=None):
@@ -1507,23 +1466,6 @@ documentation: https://github.com/thiagolcmelo/oglhslack
         """returns a text with instructions about the commands syntax"""
         build_in_commands = [
             {
-                'command': 'monitor',
-                'description': 'Shows a summary information about nodes ' + \
-                    'and licenses (displays only first 10 nodes) (SG).',
-                'alias': 'dashboard'
-            },
-#            {
-#                'command': 'monitor-full',
-#                'description': 'Shows a summary information about nodes ' + \
-#                    'and licenses (displays all nodes) (SG).',
-#                'alias': 'dashboard'
-#            },
-#            {
-#                'command': 'devices-monitor',
-#                'description': 'Shows a list of devices grouped by node (SG).',
-#                'alias': 'device-monitor'
-#            },
-            {
                 'command': 'devices',
                 'description': 'Shows all the managed devices available (SG)',
                 'alias': 'ports, labels'
@@ -1532,6 +1474,11 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 'command': 'device-info <device>',
                 'description': 'Shows the description of a device (SG)',
                 'alias': ''
+            },
+            {
+                'command': 'devices on <node>',
+                'description': 'Shows the node\'s devices (SG)',
+                'alias': 'node-ports <node>'
             },
             {
                 'command': 'ssh <device>',
@@ -1552,13 +1499,8 @@ documentation: https://github.com/thiagolcmelo/oglhslack
             },
             {
                 'command': 'status',
-                'description': 'Shows nodes enrollment summary',
+                'description': 'Shows nodes enrollment and licensing summary',
                 'alias': 'console <device>, gimme <device>'
-            },
-            {
-                'command': 'info <node>',
-                'description': 'Shows the node\'s description',
-                'alias': 'desc <node>'
             },
             {
                 'command': 'gui',
@@ -1574,6 +1516,11 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 'command': 'nodes',
                 'description': 'Shows enrolled nodes (SG)',
                 'alias': 'summary, stats, status, howzit'
+            },
+            {
+                'command': 'node-info <node>',
+                'description': 'Shows the node\'s description',
+                'alias': 'desc <node>'
             },
             {
                 'command': 'pending',
@@ -1602,6 +1549,11 @@ documentation: https://github.com/thiagolcmelo/oglhslack
                 'description': 'Shows the nodes belonging to a smartgroup',
                 'alias': 'smart-nodes, smartgroupnodes'
             },
+            {
+                'command': 'advanced',
+                'description': 'Describes some advance commands',
+                'alias': 'advanced-help'
+            },
         ]
 
         max_command = max([len(c['command']) for c in build_in_commands])
@@ -1624,15 +1576,18 @@ documentation: https://github.com/thiagolcmelo/oglhslack
 ```""" + help_text + """
 ```
 
-In the list of commands above (same holding for those bellow), those """ + \
+In the list of commands above, those """ + \
 """with *(SG)* can be followed by `in MySmartGroup`, for instance:
 
 ```
 @""" + self.bot_name + """ nodes in MySmartGroup """ + \
 """(same as @mybot smart-group-nodes MySmartGroup)
-```
-
-It is also possible to query objects like:
+```""")
+    
+    def _show_advanced_help(self, *_):
+        """returns a text with instructions about the commands syntax"""
+        return textwrap.dedent("""
+It is possible to query objects like:
 ```
 @""" + self.bot_name + """ list nodes
 @""" + self.bot_name + """ find node my-node-name
@@ -1655,7 +1610,7 @@ Generically:
 
 For a complete reference, please refer to:
 
-https://github.com/thiagolcmelo/oglhslack
+https://github.com/opengeardev/oglhslack
             """)
 
 if __name__ == '__main__':
