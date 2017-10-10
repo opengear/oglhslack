@@ -650,7 +650,7 @@ class OgLhSlackBot:
         if not (self.bot_name and self.default_channel and self.slack_token):
             raise RuntimeError("""
 Some of the required environment variables are not set, please refer to the 
-documentation: https://github.com/opengeardev/oglhslack
+documentation: https://github.com/opengear/oglhslack
             """)
 
         self.default_log_channel = \
@@ -837,7 +837,7 @@ documentation: https://github.com/opengeardev/oglhslack
             try:
                 self.slack_client.api_call('chat.postMessage', \
                     channel=channel, \
-                        text='An error happened, please try again.', \
+                        text='An error occurred, please try again.', \
                         as_user=True)
             except:
                 pass
@@ -1066,7 +1066,8 @@ documentation: https://github.com/opengeardev/oglhslack
         for port in ports:
             if not 'proxied_ssh_url' in port._asdict():
                 continue
-            ssh_url = re.sub(r'ssh://lhbot', 'ssh://' + username, \
+            bot_username = self.client_helper.lh_api.username
+            ssh_url = re.sub(r'ssh://' + bot_username, 'ssh://' + username, \
                 port.proxied_ssh_url)
             ssh_urls.append('<' + ssh_url + '>')
         return ssh_urls
@@ -1610,7 +1611,7 @@ Generically:
 
 For a complete reference, please refer to:
 
-https://github.com/opengeardev/oglhslack
+https://github.com/opengear/oglhslack
             """)
 
 if __name__ == '__main__':
