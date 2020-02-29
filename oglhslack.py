@@ -1,17 +1,15 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-import os, signal, textwrap, re, time, multiprocessing, threading
-import logging, logging.handlers, yaml
+import logging, multiprocessing, re, signal
+import textwrap, threading, os, time, yaml
 
 from datetime import datetime, timedelta
 from functools import wraps, partial
-from future.standard_library import install_aliases
-
+#from future.standard_library import install_aliases
 from oglhclient import LighthouseApiClient
 from slackclient import SlackClient
 
-install_aliases()
-
+#install_aliases()
 
 def retry(tries=5, delay=3, backoff=2, logger=None):
     """Retry calling the decorated function using an exponential backoff.
@@ -40,8 +38,8 @@ def retry(tries=5, delay=3, backoff=2, logger=None):
     return deco_retry
 
 class LighthouseError(Exception):
-    def __init__(self,*args,**kwargs):
-        Exception.__init__(self,*args,**kwargs)
+    def __init__(self, *args, **kwargs):
+        Exception.__init__(self, *args, **kwargs)
 
 class OgLhClientHelper:
     def __init__(self):
@@ -63,10 +61,10 @@ class OgLhClientHelper:
             raise error
         except:
             return None
-        
+
     def get_smart_group_nodes(self, smartgroup):
         """returns a list of nodes belonging to a smartgroup
-        
+
         :smartgroup is the smartgroup name
         """
         try:
@@ -82,10 +80,10 @@ class OgLhClientHelper:
             raise error
         except:
             return None
-            
+
     def get_smart_group_query(self, smartgroup):
         """returns the query a smartgroup specified by its name
-        
+
         :smartgroup is the name of the smart group
         """
         if not smartgroup:
@@ -95,7 +93,7 @@ class OgLhClientHelper:
             if 'error' in body._asdict():
                 raise LighthouseError('Lighthouse says: %s' \
                     % body.error[0].text)
-                
+
             for s in body.smartgroups:
                 if s.name.lower() == smartgroup.lower():
                     return s.query
@@ -106,11 +104,11 @@ class OgLhClientHelper:
 
     def get_ports(self, label, smartgroup=None):
         """Return all ports along all nodes such that the port's label matches
-        the :label paramater. 
-        
+        the :label paramater.
+
         :label a port label
         :smartgroup if specified, objects will be filtered by smargroup query
-        
+
         Usage:
 
         >>> ports = slack_bot.get_ports('mySoughtLabel')
@@ -119,15 +117,15 @@ class OgLhClientHelper:
         body = self.client.nodes.list({ 'port:label': label }, json=query)
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
-                
+
         return [port for node in body.nodes for port in node.ports \
             if port.label.lower() == label.lower()]
 
     def get_pending(self, smartgroup=None):
         """a list of names of the pending nodes (waiting for approval)
-        
+
         :smartgroup if specified, objects will be filtered by smargroup query
-        
+
         Usage:
 
         >>> pending_node_names, new_pending = slack_bot.get_pending()
@@ -137,11 +135,11 @@ class OgLhClientHelper:
             was instantiated, and False otherwise
         """
         query = self.get_smart_group_query(smartgroup)
-        
+
         body = self.client.nodes.list(json=query)
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
-        
+
         name_ids = { node.name: node.id for node in body.nodes \
             if node.approved == 0 }
         #new_pending = (set(name_ids) > set(self.pending_name_ids))
@@ -152,9 +150,9 @@ class OgLhClientHelper:
 
     def get_enrolled(self, smartgroup=None):
         """A list of current enrolled nodes
-        
+
         :smartgroup if specified, objects will be filtered by smargroup query
-        
+
         Usage:
 
         >>> enrolled_node_names = slack_bot.get_enrolled()
@@ -170,7 +168,7 @@ class OgLhClientHelper:
 
     def get_node_id(self, node_name):
         """Returns the node id given its name
-        
+
         :node_name is the friendly name of the node
 
         Usage:
@@ -193,12 +191,12 @@ class OgLhClientHelper:
 
     def get_port_labels(self, node_name, smartgroup=None):
         """Returns all port labels for a given node
-        
+
         :node_name is the friendly name of the node
         :smartgroup might be used together or instead of :node_name, so that
         only ports belonging to nodes belonging to the :smartgroup will be
         listed
-        
+
         Usage:
 
         >>> port_labels = slack_bot.get_port_labels('myNodeOfInterest')
@@ -209,17 +207,17 @@ class OgLhClientHelper:
         try:
             query = self.get_smart_group_query(smartgroup)
             nodes = []
-            
+
             if node_name:
                 body = self.client.nodes.list({ 'config:name' : node_name }, \
                     json=query)
             else:
                 body = self.client.nodes.list(json=query)
-            
+
             if 'error' in body._asdict():
                 raise LighthouseError('Lighthouse says: %s' \
                     % body.error[0].text)
-                
+
             nodes = body.nodes
             #labels = [port.label for node in nodes for port \
             #        in node.ports if port.mode == 'consoleServer']
@@ -235,7 +233,7 @@ class OgLhClientHelper:
     def get_summary(self):
         """Returns a summary about how many nodes are currently connected,
         pending, and disconnected
-        
+
         Usage:
 
         >>> connected, pending, disconnected = slack_bot.get_summary()
@@ -247,7 +245,7 @@ class OgLhClientHelper:
         body = self.client.stats.nodes.connection_summary.get()
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
-        
+
         for conn in body.connectionSummary:
             if conn.status == 'connected':
                 connected = int(conn.count)
@@ -260,7 +258,7 @@ class OgLhClientHelper:
 
     def delete_nodes(self, node_names):
         """Delete or disconnect a list of nodes specified by their names
-        
+
         :node_names is a list of names of nodes to be deleted
 
         Usage:
@@ -274,7 +272,7 @@ class OgLhClientHelper:
         body = self.client.nodes.list()
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
-        
+
         deleted_names = []
         errors = []
         for node in body.nodes:
@@ -291,8 +289,8 @@ class OgLhClientHelper:
         return deleted_names, errors
 
     def approve_nodes(self, node_names):
-        """Approv or enroll a list of nodes specified by their names
-        
+        """Approve or enroll a list of nodes specified by their names
+
         :node_names is a list of names of nodes to be approved
 
         Usage:
@@ -306,7 +304,7 @@ class OgLhClientHelper:
         body = self.client.nodes.list({ 'config:status' : 'Registered' })
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
-            
+
         approved_names = []
         errors = []
         for node in body.nodes:
@@ -331,7 +329,7 @@ class OgLhClientHelper:
                     errors.append('Error approving [%s]: %s' % (node.name, \
                         str(e)))
         return approved_names, errors
-    
+
     def get_licenses(self):
         """returns the license keys related to the regarding lighthouse"""
         try:
@@ -344,7 +342,7 @@ class OgLhClientHelper:
             raise error
         except:
             return None
-    
+
     def get_entitlements(self):
         """returns the entitlements related to the regarding lighthouse"""
         try:
@@ -357,7 +355,7 @@ class OgLhClientHelper:
             raise error
         except:
             return None
-    
+
     def is_evaluation(self):
         """check whether the user is in evaluation mode"""
         try:
@@ -370,9 +368,9 @@ class OgLhClientHelper:
             raise error
         except:
             return True
-    
+
     def is_license_valid(self):
-        """check whether the user license is still valid, which means it is 
+        """check whether the user license is still valid, which means it is
         not expired neither exceeding maximum nodes number"""
         try:
             entitlements = self.get_entitlements()
@@ -380,10 +378,10 @@ class OgLhClientHelper:
             if 'error' in body._asdict():
                 raise LighthouseError('Lighthouse says: %s' \
                     % body.error[0].text)
-            
+
             nodes_count = len(body.nodes)
             is_valid = False
-            
+
             for e in entitlements:
                 if 'features' in e._asdict() and \
                     'maintenance' in e.features._asdict() and \
@@ -395,12 +393,12 @@ class OgLhClientHelper:
             raise error
         except:
             return False
-            
+
     def get_object_id(self, object_type, object_name, \
         parent_type=None, parent_name=None, parent_id=None):
         """Returns the id for a generic object based on its name, if it is a
         child object, the parent information is required
-        
+
         :object_type is the type like: 'nodes', 'tags', 'smartgroups', etc.
         :object_name the known name of the object
         :parent_type depends on the object, for 'tags' it might be 'nodes'
@@ -411,27 +409,27 @@ class OgLhClientHelper:
         try:
             if parent_type and parent_name and not parent_id:
                 parent_id = self.get_object_id(parent_type, parent_name)
-            
+
             chain = []
             params = []
             if parent_type:
                 chain.append(parent_type)
                 params.append('parent_id=' + parent_id)
             chain.append(object_type)
-            
+
             call_str = 'self.client.{chain}.list({params})'
             r = eval(str.format(call_str, chain='.'.join(chain), \
                 params=','.join(params)))
             if 'error' in r._asdict():
                 raise LighthouseError('Lighthouse says: %s' % r.error[0].text)
-            
+
             for o in r._asdict()[object_type]:
                 obj_label = ''
                 for label in ['name', 'label', 'username', 'groupname']:
                     if label in o._asdict():
                         obj_label = label
                         break
-            
+
                 if o._asdict()[obj_label] == object_name:
                     return o.id
         except LighthouseError as error:
@@ -444,21 +442,21 @@ class OgLhClientHelper:
         body = self.client.nodes.list()
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
-            
+
         nodes = body.nodes
-        
+
         body = self.client.system.licenses.list()
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         licenses = body.licenses
-        
+
         body = self.client.system.entitlements.list()
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         entitlements = body.entitlements
-        
+
         connected, pending, disconnected = self.get_summary()
-        
+
         dashboard = """
 Current Node Status:
 {nodes_status}
@@ -471,9 +469,9 @@ Licensing Information:
 >  {node_name}:
 >    {node_status}: last status change {time_change} ago
 >    Web UI: <{url}/{node_id}>"""
-        
+
         nodes_info = []
-        
+
         for node in sorted(nodes, key=lambda n: n.name):
             if node.status == 'Enrolled':
                 nodes_info.append(str.format(node_template, \
@@ -483,13 +481,13 @@ Licensing Information:
                         node.runtime_status.change_delta), \
                     url=self.url, \
                     node_id=node.id))
-        
+
         nodes_status = str.format("""
 >  Connected: {connected}
 >  Pending: {pending}
 >  Disconnected: {disconnected}""",connected=connected, pending=pending, \
   disconnected=disconnected)
-        
+
         max_devices = sum([e.features.nodes for e in entitlements \
             if e.features.maintenance >= time.time()])
         devices = len([n for n in nodes if n.status == 'Enrolled'])
@@ -497,14 +495,14 @@ Licensing Information:
         expiry = time.strftime('%m/%d/%Y', time.localtime(expiry_epoch))
         status = 'In Compliance' if devices <= max_devices \
             and expiry_epoch >= time.time() else 'Not in Compliance'
-        
+
         licensing = str.format("""
 >  Number of Installed Licenses: {installed}
 >  Number of Supported Devices: {devices} / {max_devices}
 >  Expiry Date: {expiry}
 >  Status: {status}""", installed=len(licenses), devices=devices, \
   max_devices=max_devices, expiry=expiry,  status=status)
-        
+
         return str.format(dashboard, nodes_status=nodes_status, \
             licensing=licensing)
 
@@ -517,7 +515,7 @@ Licensing Information:
         if 'error' in body._asdict():
             raise LighthouseError('Lighthouse says: %s' % body.error[0].text)
         nodes = body.nodes
-        
+
         for node in nodes:
             if node.name.lower() == node_name.lower():
                 network = ''
@@ -552,12 +550,12 @@ Licensing Information:
     mac=node.mac_address, network=network, lan=lan, modem=modem, \
     serial=node.serial_number, url='<%s/%s>' % (self.url, node.id), \
     status=node_status, change=time_change, node_name=node_name)
-        
+
         return 'Information not found for node: [%s]' % node
-    
+
     def get_device_info(self, device, smartgroup):
         """returns a formatted list of devices that match :device name
-        
+
         :device is the device name
         :smartgroup is for filtering nodes beloging to this smartgroup
         """
@@ -568,7 +566,7 @@ Licensing Information:
                 raise LighthouseError('Lighthouse says: %s' \
                     % body.error[0].text)
             ports = body.ports
-            
+
             clean_ports = []
             for p in ports:
                 if p.label.lower() == device.lower():
@@ -584,7 +582,7 @@ Licensing Information:
                     })
             ports = sorted(clean_ports, \
                 key=lambda x: x['node_name'] + x['name'])
-            
+
             monitor_template = """
 Devices Monitor:
 {devices_list}
@@ -601,11 +599,11 @@ Devices Monitor:
             raise error
         except:
             return 'Problem finding device'
-    
+
     def _format_time(self, time_sec):
         """formats properly a time in seconds for the highest time unit as
         possible
-        
+
         :time_sec a time interval in seconds
         """
         sec = timedelta(seconds=time_sec)
@@ -617,7 +615,7 @@ Devices Monitor:
         elif d.minute > 0:
             return '%d minutes' % d.minute
         return '%d seconds' % d.second
-        
+
 class OgLhSlackBot:
     """A Bot for dealing with the Opengear Lighthouse API straight from Slack
     terminal.
@@ -649,7 +647,7 @@ class OgLhSlackBot:
 
         if not (self.bot_name and self.default_channel and self.slack_token):
             raise RuntimeError("""
-Some of the required environment variables are not set, please refer to the 
+Some of the required environment variables are not set, please refer to the
 documentation: https://github.com/opengear/oglhslack
             """)
 
@@ -675,6 +673,7 @@ documentation: https://github.com/opengear/oglhslack
                 'howzit' }, \
             self._get_web : { 'lighthouse', 'lhweb', 'webui', 'gui' }, \
             self._get_enrolled : { 'nodes', 'enrolled' }, \
+            self._smart_group_nodes: { 'smart-group-nodes' }, \
             self._node_info : { 'node-info', 'node-desc' }, \
             self._check_pending : { 'pending' }, \
             self._approve_nodes: { 'approve', 'okay', 'approve', 'admin' }, \
@@ -687,11 +686,11 @@ documentation: https://github.com/opengear/oglhslack
 
         if not self.slack_client.rtm_connect():
             raise RuntimeError('Slack connection failed')
-            
+
         self.bod_id = self._get_bot_id()
         self.bot_at = '<@' + self.bod_id + '>'
         self.admin_channel_id = self._get_channel_id(self.admin_channel)
-    
+
     @retry(tries=10)
     def _start_clients(self):
         """it starts or restarts slack and lighthouse clients when necessary
@@ -716,22 +715,22 @@ documentation: https://github.com/opengear/oglhslack
                         self._logging('Hi there! I am here to help!', \
                             force_slack=True)
                         launching = False
-                    
+
                     while True:
                         command, channel, user_id = \
                                 self._read(self.slack_client.rtm_read())
-                        
+
                         if command and channel and user_id:
                             t = threading.Thread(target=self._command, \
                                 args=(command, channel, user_id))
                             t.setDaemon(True)
                             t.start()
-                            
+
                         if self.poll_count % 10 == 0:
                             self._command('pending new_only', \
                                 self.admin_channel_id, None)
                             self.poll_count = 0
-                        
+
                         self.poll_count += self.poll_interval
                         time.sleep(self.poll_interval)
 
@@ -743,7 +742,7 @@ documentation: https://github.com/opengear/oglhslack
                 except Exception as error:
                     self.logger.exception(error)
                     self._dying_message(str(error))
-            
+
                 self._logging('Trying to reconnect Bot in %d seconds...' \
                     % self.restart_interval, force_slack=True)
                 time.sleep(self.restart_interval)
@@ -754,9 +753,9 @@ documentation: https://github.com/opengear/oglhslack
     def _read(self, output_list):
         """reads slack messages in channels where the bot has access
         (PM, channels enrolled, etc)
-        
+
         :output_list is the slack return for the api.rtm_read() function
-        
+
         WARNING: it ignores messages from whathever other slack bot
         """
         if output_list and len(output_list) > 0:
@@ -779,9 +778,9 @@ documentation: https://github.com/opengear/oglhslack
 
     def _command(self, command, channel, user_id):
         """tries to execute a command received in some of the available channels
-        or private messages. It has a semaphore for assuring that no more 
+        or private messages. It has a semaphore for assuring that no more
         commands are executed simultaneously than the number of cpus
-        
+
         :command is a string carriying the command, it might be empty, a single
         word or many words
         :channel is the slack id of the channel where the message was sent
@@ -791,16 +790,16 @@ documentation: https://github.com/opengear/oglhslack
             self.semaphores.acquire()
             response = ''
             is_help = False
-    
+
             username = self._get_slack_username(user_id) \
                 if user_id else 'system'
             channel_name = self._get_channel_name(channel)
-    
+
             if user_id:
                 self._logging(str.format('Got command: `{command}`, from: ' + \
                     '{username}', command=command, username=username))
                 response = '<@' + user_id + '|' + username + '> '
-            
+
             try:
                 #if not self.client_helper.is_license_valid():
                 #    response += '\n\n*We were not able of validating your ' + \
@@ -809,11 +808,11 @@ documentation: https://github.com/opengear/oglhslack
                 if self.client_helper.is_evaluation():
                     response += '*WARNING:* Lighthouse is currently ' + \
                         'running in evaluation mode. :slightly_frowning_face:\n'
-                        
-                # check whether some of the built in funtions were called    
+
+                # check whether some of the built in funtions were called
                 output = self._built_in_functions(command, channel_name, \
                     username)
-                # try the more complex query tool in 
+                # try the more complex query tool in
                 # case of no built in function
                 if not output and command != 'pending new_only':
                     output, is_help = self._query_tool(command, channel_name)
@@ -823,7 +822,7 @@ documentation: https://github.com/opengear/oglhslack
                 raise ie
 
             if output:
-                response += output                
+                response += output
                 self._logging('Responding: ' + \
                     (response if not is_help else 'help message'))
                 try:
@@ -831,7 +830,7 @@ documentation: https://github.com/opengear/oglhslack
                         channel=channel, text=response, as_user=True)
                 except:
                     raise RuntimeError('Slack post failed')
-                    
+
         except Exception as e:
             self._logging(str(e), level=logging.ERROR, error_stack=e)
             try:
@@ -861,7 +860,7 @@ documentation: https://github.com/opengear/oglhslack
     @retry(tries=5)
     def _get_channel_name(self, channel_id):
         """returns the friendly name of a channel given its id
-        
+
         :channel_id is the slack id of the sought channel
         """
         try:
@@ -871,21 +870,21 @@ documentation: https://github.com/opengear/oglhslack
         for c in channel_list['channels']:
             if c['id'] == channel_id:
                 return c['name']
-        
+
         try:
             channel_list = self.slack_client.api_call('groups.list')
         except:
             raise RuntimeError('Slack private channels list failed')
-        
+
         for c in channel_list['groups']:
             if c['id'] == channel_id:
                 return c['name']
         return None
-    
+
     @retry(tries=5)
     def _get_channel_id(self, channel_name):
         """returns the id of a channel given its name
-        
+
         :channel_name is the slack id of the sought channel
         """
         try:
@@ -895,12 +894,12 @@ documentation: https://github.com/opengear/oglhslack
         for c in channel_list['channels']:
             if c['name'] == channel_name:
                 return c['id']
-        
+
         try:
             channel_list = self.slack_client.api_call('groups.list')
         except:
             raise RuntimeError('Slack private channels list failed')
-        
+
         for c in channel_list['groups']:
             if c['name'] == channel_name:
                 return c['id']
@@ -910,7 +909,7 @@ documentation: https://github.com/opengear/oglhslack
     def _get_slack_username(self, user_id):
         """returns the friendly username of a user given its id if the username
         is not found 'friend' is returned
-        
+
         :user_id is the slack id of the sought user
         """
         if user_id:
@@ -918,30 +917,30 @@ documentation: https://github.com/opengear/oglhslack
                 info = self.slack_client.api_call('users.info', user=user_id)
             except:
                 raise RuntimeError('Error getting Slack\'s username by id')
-                    
+
             username = info['user']['name']
             if username:
                 return username
         return 'friend'
 
     def _built_in_functions(self, command, channel, username):
-        """try to parse the :command as one of the built in ones, :channel is 
+        """try to parse the :command as one of the built in ones, :channel is
         used for checking where the command was performed, whether in a
         public/private channel or in a private message, :username is required
         for some of the built in functions
-        
+
         :command is the trimmed string with the comand only
         :channel is the friendly name of the channel where the message was sent
         :username is the friendly name of the user who sent the message
-        
-        WARNING: it also prevents from executing admin commands in not 
+
+        WARNING: it also prevents from executing admin commands in not
         authorized channels
         """
         command = self._command_on_node(command)
         intent, _, scope = command.partition(' ')
-        
+
         scope = self._sanitise(scope)
-        
+
         for func, intents in self.func_intents.items():
             if intent in intents and (channel == self.admin_channel or \
                 not 'admin' in intents):
@@ -956,10 +955,10 @@ documentation: https://github.com/opengear/oglhslack
     def _query_tool(self, command, channel):
         """tries to parse the :command as query, with a proper syntax specified
         at the documentation
-        
+
         :command is the trimmed string with the comand only
         :channel is the friendly name of the channel where the message was sent
-        
+
         WARNING: it also prevents from executing commands that make changes from
         not authorized channels
         """
@@ -967,10 +966,10 @@ documentation: https://github.com/opengear/oglhslack
             action, _, scope = re.sub('\s+', ' ', command).partition(' ')
             action = action.lower()
             scope = self._sanitise(scope.strip())
-            
+
             action_type = 'simple' if action in ['get','find','list'] \
                 else 'complex'
-                
+
             if action in ['update', 'set', 'delete', 'create'] \
                 and channel != self.admin_channel:
                 return "Actions other than `get`, `find` and `list` " + \
@@ -980,17 +979,17 @@ documentation: https://github.com/opengear/oglhslack
                 params=[]
                 chain = []
                 main_parts = []
-                
+
                 object_type = None
                 object_name = None
                 parent_type = None
                 parent_name = None
                 parent_id = None
                 smartgroup = None
-                
-                if re.match('.*\s+in\s+\w+$', scope):
+
+                if re.match('.*\s+in\s+\w+', scope):
                     scope = scope.split(' in ')
-                    smartgroup = scope[1]
+                    smartgroup = scope[1].strip()
                     query = self.client_helper.get_smart_group_query(smartgroup)
                     params.append('json=\'%s\'' % query)
                     scope = scope[0]
@@ -1013,7 +1012,7 @@ documentation: https://github.com/opengear/oglhslack
                 if object_type == 'devices':
                     object_type = 'ports'
                 chain.append(object_type)
-                    
+
                 if len(main_parts) == 2:
                     if action_type == 'simple':
                         action = 'find'
@@ -1023,7 +1022,7 @@ documentation: https://github.com/opengear/oglhslack
                             parent_type=parent_type, \
                             parent_name=parent_name)
                     params.append('id="%s"' % object_id)
-                
+
                 if object_type in ['devices', 'ports'] and \
                     parent_type == 'nodes' and action == 'list' and \
                     parent_id:
@@ -1031,12 +1030,12 @@ documentation: https://github.com/opengear/oglhslack
                         self.client_helper.get_port_labels( \
                             node_name=parent_name, \
                             smartgroup=smartgroup)), False
-                    
+
                 call_str = 'self.client_helper.client.' + \
                     '{chain}.{action}({params})'
                 r = eval(str.format(call_str, chain='.'.join(chain), \
                     action=action, params=','.join(params)))
-                    
+
                 if 'error' in r._asdict() and \
                     'Could not find element' in r.error[0].text:
                     # lets try to be smart
@@ -1048,7 +1047,7 @@ documentation: https://github.com/opengear/oglhslack
                                 return self._format_response(action, r2), False
                     except:
                         pass
-                    
+
                 return self._format_response(action, r), False
         except:
             return self._show_help(), True
@@ -1057,7 +1056,7 @@ documentation: https://github.com/opengear/oglhslack
 
     def _ports_list_ssh(self, ports, label, username):
         """ssh connection strings for devices
-        
+
         :ports a list of port objects
         :label the label of the port to build the url
         :username it is the user's slack username
@@ -1074,7 +1073,7 @@ documentation: https://github.com/opengear/oglhslack
 
     def _ports_list_web(self, ports, label):
         """web urls for devices
-        
+
         :ports a list of ports objects
         :label the label of the port to build the url
         """
@@ -1089,7 +1088,7 @@ documentation: https://github.com/opengear/oglhslack
 
     def _get_port_ssh(self, label, smartgroup, username):
         """returns a list of ssh links for a device
-        
+
         :label the device label
         :username the slack username
         """
@@ -1099,10 +1098,10 @@ documentation: https://github.com/opengear/oglhslack
             return (':x: Device not found: %s. ' + \
                 'Unable to create ssh link.') % label
         return '\n'.join(urls)
-        
+
     def _get_port_web(self, label, smartgroup, *_):
         """ returns a list of web urls for a device
-        
+
         :label the device label
         """
         ports = self.client_helper.get_ports(label, smartgroup)
@@ -1115,7 +1114,7 @@ documentation: https://github.com/opengear/oglhslack
 
     def _get_port(self, label, smartgroup, username):
         """return all urls ans ssh links for a given device
-        
+
         :label the device label
         :username the slack username
         """
@@ -1146,7 +1145,7 @@ documentation: https://github.com/opengear/oglhslack
                     'Please check it and try again.'
             response.append(name + ' ' + emoji)
         return self._format_list(response)
-        
+
     def _delete_nodes(self, str_names, *_):
         """delete or unenroll a list of nodes specified by their names
         :str_names a list of nodes names
@@ -1176,18 +1175,23 @@ documentation: https://github.com/opengear/oglhslack
         return response
 
     def _get_enrolled(self, nodes, smartgroup, *args):
-        """return a list of the current nodes connectes or enrolled"""
+        """return a list of the current enrolled nodes
+        """
         enrolled_nodes = self.client_helper.get_enrolled(smartgroup)
         if enrolled_nodes:
             response = self._format_list(enrolled_nodes)
         else:
-            response = 'No created node.'
+            response = 'No enrolled nodes.'
         return response
-        
+
+    def _smart_group_nodes(self, smartgroup, *args):
+        """return a list of the current enrolled nodes filtered by smartgroup"""
+        return self._get_enrolled("", smartgroup)
+
     def _check_pending(self, new_only, smartgroup, *_):
         """check whether there are pending nodes waiting for approval, in such
         a case it returns a list with their names
-        
+
         :new_only is a boolean for indicating that only nodes waiting for
         approval that appeared after the last check should be returned
         """
@@ -1205,10 +1209,10 @@ documentation: https://github.com/opengear/oglhslack
 
     def _get_web(self, *args):
         """returns the general url for the GUI or for a specific node
-        
+
         :args can be a tuple like ('','username'), in such a case only the
         general url will be returned, or it can be ('node-name','username')
-        in sucha a case the url for the given node will be returned        
+        in sucha a case the url for the given node will be returned
         """
         if args[0]:
             node_id = self.client_helper.get_node_id(args[0]) or args[0]
@@ -1218,12 +1222,12 @@ documentation: https://github.com/opengear/oglhslack
     def _get_node_summary(self, scope, *_):
         """returns a summary similar to the one at the monitor dashboard
         in the web ui, without the nodes
-        
+
         :scope is never used
-        
+
         """
         return self.client_helper.get_monitor()
-        
+
     def _smart_groups(self, *_):
         """return a list of smartgroups"""
         smartgroups = self.client_helper.get_smart_groups()
@@ -1232,23 +1236,23 @@ documentation: https://github.com/opengear/oglhslack
         else:
             response = 'No smart groups found'
         return response
-        
+
     def _node_info(self, node, *_):
         """displays a detailed description of a node
-        
+
         :node is the node's name
         """
         return self.client_helper.get_node_info(node)
-    
+
     def _device_info(self, device, smartgroup, *_):
         """shows the description of a device, if more than one device is found
         with this name, they will be listed according to their nodes
-        
+
         :device the devices name
         :smartgroup is used for filtering nodes belonging to this smartgroup
         """
         return self.client_helper.get_device_info(device, smartgroup)
-    
+
     # formatting functions
 
     def _sanitise(self, line):
@@ -1256,14 +1260,14 @@ documentation: https://github.com/opengear/oglhslack
         <user-id|username>
         <channel-id|channel-name>
         <url|link-label>
-        
+
         for such cases, it returns the content part:
         <user-id|username> becomes: username
         <channel-id|channel-name> becomes: channel-name
         <url|link-label> becomes: link-label
-        
+
         it is most useful for links, which slack always put in the shape above
-        
+
         :line is a string with a shape like above
         """
         sanitised = []
@@ -1279,7 +1283,7 @@ documentation: https://github.com/opengear/oglhslack
         """it is a very simple tool for get plural names according to those used
         by the api, it is just a matter of making it easier for the user when
         guessing about query syntax
-        
+
         :word is a string to be transformed to its plural shape according to
         the api conventions
         """
@@ -1294,11 +1298,11 @@ documentation: https://github.com/opengear/oglhslack
     def _format_response(self, action, resp):
         """formats the message according to the action
 
-        for 'list', minimal information is shown, basically a list of names 
+        for 'list', minimal information is shown, basically a list of names
         and/or ids
 
         for 'find' or 'get' returns a structured view of the objects properties
-        
+
         :action the action, which might be: 'list', 'get', 'find', 'update', and
         'create'
         :resp might be a simple string, an array, or a named tuple
@@ -1347,7 +1351,7 @@ documentation: https://github.com/opengear/oglhslack
         """format an array of strings according to its length.
         - until 10 items, a simple list is returned
         - more than 10 items are printed in columns
-        
+
         :raw_list is an array of strings
         :list_title is a title to be placed above the list, it is not required
         """
@@ -1373,7 +1377,7 @@ documentation: https://github.com/opengear/oglhslack
     def _dump_obj(self, obj, level=0):
         """tries to dump an object in a easy to read description of its
         properties
-        
+
         :obj the object to be dumped, it might be since a simple string until
         a named tuple
         :level it is basically an indicator of how many tabs will be in the
@@ -1392,25 +1396,25 @@ documentation: https://github.com/opengear/oglhslack
             except Exception as e:
                 response += '\n' + " " * level + "%s -> %s" % (key, value)
         return response
-    
+
     def _split_scope_smartgroup(self, scope):
         """removes the smartgroup from a command's scope
-        
+
         :scope is the scope of a command, its parameter
         """
         smartgroup = None
-        if re.match('.*in\s+\w+$', scope):
+        if re.match('.*in\s+\w+', scope):
             scope, smartgroup = scope.split('in ')
         return scope.strip(), smartgroup and smartgroup.strip()
-    
+
     def _command_on_node(self, command):
-        return re.sub('devices\s+on\s+', 'devices ', command) 
+        return re.sub('devices\s+on\s+', 'devices ', command)
 
     def _dying_message(self, message):
         """it is final message for the default slack channel and for the log
         file, in case of issues posting to slack, only the log file part
         will work
-        
+
         :message is a raw final message given by slack bot before it dies
         """
         self._logging(message, level=logging.ERROR)
@@ -1426,9 +1430,9 @@ documentation: https://github.com/opengear/oglhslack
 
     def _logging(self, message, level=logging.INFO, force_slack=False,
         error_stack=None):
-        """it will log to slack only if there is a specified slack channel 
+        """it will log to slack only if there is a specified slack channel
         for logs or if the level is not a simple logging.INFO
-        
+
         :message the message to be logged
         :level the level, which should be those logging standard ones
         force_slack
@@ -1552,7 +1556,7 @@ documentation: https://github.com/opengear/oglhslack
             },
             {
                 'command': 'advanced',
-                'description': 'Describes some advance commands',
+                'description': 'Describes some advanced commands',
                 'alias': 'advanced-help'
             },
         ]
@@ -1582,13 +1586,13 @@ In the list of commands above, those """ + \
 
 ```
 @""" + self.bot_name + """ nodes in MySmartGroup """ + \
-"""(same as @mybot smart-group-nodes MySmartGroup)
+"""(same as @""" + self.bot_name + """ smart-group-nodes MySmartGroup)
 ```""")
-    
+
     def _show_advanced_help(self, *_):
         """returns a text with instructions about the commands syntax"""
         return textwrap.dedent("""
-It is possible to query objects like:
+It is also possible to query objects following *Lighthouse API* structure:
 ```
 @""" + self.bot_name + """ list nodes
 @""" + self.bot_name + """ find node my-node-name
@@ -1609,7 +1613,7 @@ Generically:
 """<parent-object> <parent-object-name>
 ```
 
-For a complete reference, please refer to:
+For a complete reference, please check:
 
 https://github.com/opengear/oglhslack
             """)

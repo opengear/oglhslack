@@ -1,3 +1,3 @@
-slackclient
-pyyaml
+slackclient==1.0.9
+pyyaml==5.3
 oglhclient

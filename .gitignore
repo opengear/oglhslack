@@ -1,5 +1,6 @@
 # ignore cache files
 *.pyc
+__pycache__/*
 
 # ignore test files
 *test.py
@@ -11,3 +12,6 @@ test.py
 
 # ignore log files
 *.log
+
+# ignore editor files
+.vscode
