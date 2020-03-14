@@ -17,7 +17,7 @@ It expects to find the following environment variables:
 
 - **(required)** `SLACK_BOT_TOKEN` provided by Slack at the moment of [creating a bot](https://api.slack.com/bot-users)
 - **(required)** `SLACK_BOT_NAME` the name given to the Slack Bot
-- **(required)** `SLACK_BOT_DEFAULT_CHANNEL` the primary Slack channel (also used for warnings)
+- **(required)** `SLACK_BOT_DEFAULT_CHANNEL` a default Slack channel for warnings (see below)
 - **(optional)** `SLACK_BOT_DEFAULT_LOG_CHANNEL` a Slack channel used for logs; if not provided, logs will be printed to a file only, but logs classified as high priority like warnings and errors will also be sent to the `SLACK_BOT_DEFAULT_CHANNEL`
 - **(optional)** `SLACK_BOT_ADMIN_CHANNEL` the name for the administrator channel; if not provided, it is assumed to be **oglhadmin**
 

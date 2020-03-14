@@ -652,7 +652,7 @@ documentation: https://github.com/opengear/oglhslack
             """)
 
         self.default_log_channel = \
-            os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL')
+            os.environ.get('SLACK_BOT_DEFAULT_LOG_CHANNEL') or self.default_channel
         self.admin_channel = \
             os.environ.get('SLACK_BOT_ADMIN_CHANNEL') or 'oglhadmin'
 
